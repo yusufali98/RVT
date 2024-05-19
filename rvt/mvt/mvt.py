@@ -13,6 +13,7 @@ from rvt.mvt.mvt_single import MVT as MVTSingle
 from rvt.mvt.config import get_cfg_defaults
 from rvt.mvt.renderer import BoxRenderer
 
+from rvt.mvt.mvt_mamba import MVT_Mamba as MVTSingleMamba
 
 class MVT(nn.Module):
     def __init__(
@@ -41,6 +42,10 @@ class MVT(nn.Module):
         add_pixel_loc,
         add_depth,
         pe_fix,
+        use_mamba,
+        mamba_d_model,
+        mamba_bidirectional,
+        mamba_d_state,
         renderer_device="cuda:0",
     ):
         """MultiView Transfomer"""
@@ -72,7 +77,21 @@ class MVT(nn.Module):
         self.proprio_dim = proprio_dim
         self.img_size = img_size
 
-        self.mvt1 = MVTSingle(**args, renderer=self.renderer)
+        if use_mamba:
+            print("Using MVT Mamba....")
+            self.mvt1 = MVTSingleMamba(**args, renderer=self.renderer)
+
+        else:
+            del args["mamba_d_model"]
+            del args["use_mamba"]
+            del args["mamba_bidirectional"]
+            del args["mamba_d_state"]
+
+            print("Using MVT TrF....")
+            self.mvt1 = MVTSingle(**args, renderer=self.renderer)
+        
+        total_params = sum(p.numel() for p in self.mvt1.parameters() if p.requires_grad)
+        print("Total params: ", total_params)
 
     def get_pt_loc_on_img(self, pt, dyn_cam_info, out=None):
         """
@@ -102,6 +121,9 @@ class MVT(nn.Module):
 
     def render(self, pc, img_feat, img_aug, dyn_cam_info):
         mvt = self.mvt1
+
+        # print("img_feat: ", len(img_feat), img_feat[0].shape)
+        # print("pc shape: ", len(pc), pc[0].shape)
 
         with torch.no_grad():
             if dyn_cam_info is None:
@@ -141,9 +163,31 @@ class MVT(nn.Module):
             img = torch.cat(img, 0)
             img = img.permute(0, 1, 4, 2, 3)
 
+            # print("img_feat after render: ", img.shape)
+
             # for visualization purposes
             if mvt.add_corr:
+
+                # import numpy as np
+                # from torchvision.utils import save_image
+                # import cv2
+
                 mvt.img = img[:, :, 3:].clone().detach()
+
+                # print("mvt img: ", type(mvt.img), mvt.img.shape, mvt.img.dtype, mvt.img.max(), mvt.img.min())
+            
+                # # Loop through each image in the batch and save as PNG
+                # for i in range(mvt.img.shape[1]):
+                #     image = mvt.img[0,i,:3]  # Get the image tensor
+                #     # Convert from tensor to numpy array and transpose dimensions
+
+                #     print("vis img: ", image.shape)
+                #     image_np = np.transpose(image.detach().cpu().numpy(), (1, 2, 0))
+                #     # Normalize pixel values to range [0, 255] (assuming values are in [0, 1])
+                #     image_np = (image_np * 255).astype(np.uint8)
+                #     # Save as PNG using torchvision
+                #     cv2.imwrite(f'image_{i}.png', cv2.cvtColor(image_np, cv2.COLOR_RGB2BGR))
+
             else:
                 mvt.img = img.clone().detach()
 
@@ -160,7 +204,9 @@ class MVT(nn.Module):
                 img = torch.cat(
                     (img, pixel_loc.unsqueeze(0).repeat(bs, 1, 1, 1, 1)), dim=2
                 )
-
+            
+            # print("img_feat after add pixel loc: ", img.shape)
+        
         return img
 
     def verify_inp(
@@ -227,14 +273,26 @@ class MVT(nn.Module):
         :param img_aug: (float) magnitude of augmentation in rgb image
         """
 
+        import time
+
         self.verify_inp(pc, img_feat, proprio, lang_emb, img_aug)
+        # print("img feat type: ", type(img_feat), len(img_feat), img_feat[0].shape, img_feat[1].shape, img_feat[2].shape)
+
+        t_start = time.time()
         img = self.render(
             pc,
             img_feat,
             img_aug,
             dyn_cam_info=None,
         )
+        t_end = time.time()
+        # print("rendering time. Time Cost: {} minutes".format((t_end - t_start) / 60.0))
+
+        t_start = time.time()
         out = self.mvt1(img=img, proprio=proprio, lang_emb=lang_emb, **kwargs)
+        t_end = time.time()
+        # print("DNN forward pass. Time Cost: {} minutes".format((t_end - t_start) / 60.0))
+
         return out
 
     def free_mem(self):

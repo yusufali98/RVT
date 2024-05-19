@@ -40,19 +40,11 @@ from rvt.utils.peract_utils import (
 )
 
 # new train takes the dataset as input
-def train(agent, dataset, training_iterations, rank=0):
+def train(agent, data_iter, training_iterations, rank=0):
     agent.train()
     log = defaultdict(list)
 
-    t_start = time.time()
-    data_iter = iter(dataset)
-    t_end = time.time()
-    print("created data_iter object. Time Cost: {} minutes".format((t_end - t_start) / 60.0))
-
-    t_start = time.time()
     iter_command = range(training_iterations)
-    t_end = time.time()
-    print("created iter_command object. Time Cost: {} minutes".format((t_end - t_start) / 60.0))
 
     for iteration in tqdm.tqdm(
         iter_command, disable=(rank != 0), position=0, leave=True
@@ -217,6 +209,7 @@ def experiment(rank, cmd_args, devices, port):
         sample_mode=exp_cfg.sample_mode,
     )
     train_dataset, _ = get_dataset_func()
+    train_dataset_iter = iter(train_dataset)
     t_end = time.time()
     print("Created Dataset. Time Cost: {} minutes".format((t_end - t_start) / 60.0))
 
@@ -283,7 +276,7 @@ def experiment(rank, cmd_args, devices, port):
             break
 
         print(f"Rank [{rank}], Epoch [{i}]: Training on train dataset")
-        out = train(agent, train_dataset, TRAINING_ITERATIONS, rank)
+        out = train(agent, train_dataset_iter, TRAINING_ITERATIONS, rank)
 
         print(f"Rank [{rank}], Epoch [{i}]: Finished training")
 

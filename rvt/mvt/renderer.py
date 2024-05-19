@@ -101,9 +101,13 @@ def select_feat_from_hm(
     pt_cam_wei[pt_cam[:, :, 0] > (w - 1)] = 0
     pt_cam_wei[pt_cam[:, :, 1] > (h - 1)] = 0
 
+    # print("pt_cam shape: ", pt_cam.shape)
     pt_cam = pt_cam.unsqueeze(2).repeat([1, 1, 4, 1])
     # later used for calculating weight
     pt_cam_con = pt_cam.detach().clone()
+    
+    # print("pt_cam shape: ", pt_cam.shape)
+    # print("pt_cam_cont shape: ", pt_cam_con.shape)
 
     # getting discrete grid location of pts in the camera image space
     pt_cam[:, :, 0, 0] = torch.floor(pt_cam[:, :, 0, 0])
@@ -115,6 +119,7 @@ def select_feat_from_hm(
     pt_cam[:, :, 3, 0] = torch.ceil(pt_cam[:, :, 3, 0])
     pt_cam[:, :, 3, 1] = torch.ceil(pt_cam[:, :, 3, 1])
     pt_cam = pt_cam.long()  # [nc, npt, 4, 2]
+
     # since we are taking modulo, points at the edge, i,e at h or w will be
     # mapped to 0. this will make their distance from the continous location
     # large and hence they won't matter. therefore we don't need an explicit
@@ -134,6 +139,7 @@ def select_feat_from_hm(
     pt_cam_wei = pt_cam_wei / _pt_cam_wei  # [nc, npt, 4]
 
     # transforming indices from 2D to 1D to use pytorch gather
+    # print("hm shape: ", hm.shape)
     hm = hm.permute(0, 2, 3, 1).view(nc, h * w, nw)  # [nc, h * w, nw]
     pt_cam = pt_cam.view(nc, 4 * npt, 2)  # [nc, 4 * npt, 2]
     # cached pt_cam in select_feat_from_hm_cache
@@ -145,7 +151,70 @@ def select_feat_from_hm(
     # summing weighted contribution of each discrete location of a point
     # [nc, npt, nw]
     pt_cam_val = torch.sum(pt_cam_val * pt_cam_wei.unsqueeze(-1), dim=2)
+
+    del pt_cam_con
+    with torch.cuda.device('cuda'):
+        torch.cuda.empty_cache()
+
     return pt_cam_val, pt_cam, pt_cam_wei
+
+
+def select_feat_from_hm_batched(
+    pt_cam: torch.Tensor, hm: torch.Tensor, pt_cam_wei: Optional[torch.Tensor] = None
+) -> Tuple[torch.Tensor]:
+    """
+    Process pt_cam tensor in batches to support arbitrarily large tensors.
+    """
+
+    # print("Starting feature extraction from heat maps....")
+
+    with torch.no_grad():
+        max_size = 275
+        batch_size = max_size * max_size * max_size  # Adjust as needed
+        
+        max_index_info = []
+        output_pts_feat_val = []
+        num_pts = pt_cam.shape[1]
+
+        # print("pts shape: ", pt_cam.shape)
+
+        for i in range(0, num_pts, batch_size):
+
+            start_idx = i
+            end_idx = min(i + batch_size, num_pts)
+
+            # print("******************************************************")
+            # print("Current start,end: ", start_idx, end_idx)
+
+            pt_cam_batch = pt_cam[:, start_idx:end_idx]
+
+            # Call the original function for each batch
+            output_batch = select_feat_from_hm(pt_cam_batch, hm, pt_cam_wei)
+
+            # Find the maximum in the current locally processed points
+            out_pt_cam_val = output_batch[0]
+
+            # print("pt cam val shape: ", out_pt_cam_val.shape)
+
+            pts_hm = out_pt_cam_val.permute(2, 1, 0)
+            # (bs, np)
+            pts_hm = torch.mean(pts_hm, -1)
+            # (bs)
+            ind_max_pts = torch.argmax(pts_hm, -1)
+
+            # print("pt hm shape: ", pts_hm.shape)
+            # print("ind max: ", ind_max_pts)
+            
+            max_index_info.append(start_idx + ind_max_pts)
+            output_pts_feat_val.append(pts_hm[:,ind_max_pts])
+
+    # print("Extracted features from heat maps !")
+    max_index_info = torch.cat(max_index_info, dim=0)
+    output_pts_feat_val = torch.cat(output_pts_feat_val, dim=0)
+
+    # print("max index info: ", max_index_info.shape)
+
+    return (max_index_info, output_pts_feat_val)
 
 
 def select_feat_from_hm_cache(
@@ -290,6 +359,7 @@ class PointsRendererWithDepth(nn.Module):
         if with_depth:
             images = torch.cat((images, depth.unsqueeze(-1)), dim=-1)
 
+        # print("Images type: ", type(images), images.shape)
         return images
 
 
@@ -370,6 +440,7 @@ class BoxRenderer:
         self._pts = None
         self._fix_pts_cam = None
         self._fix_pts_cam_wei = None
+        self._pts_img_batched = None
 
     def _get_fix_cam(self):
         if self._fix_cam is None:
@@ -500,7 +571,7 @@ class BoxRenderer:
         return img
 
     @torch.no_grad()
-    def get_pt_loc_on_img(self, pt, fix_cam=True, dyn_cam_info=None):
+    def get_pt_loc_on_img(self, pt, use_for_loop, fix_cam=True, dyn_cam_info=None):
         """
         returns the location of a point on the image of the cameras
         :param pt: torch.Tensor of shape (bs, np, 3)
@@ -522,13 +593,44 @@ class BoxRenderer:
             and isinstance(dyn_cam_info[0], tuple)
         ), dyn_cam_info
 
+        # print("############### Shape of points tensor: ", pt.shape)
+
         pt_img = []
+
         if fix_cam:
             fix_cam = self._get_fix_cam()
-            # (num_cam, bs * np, 2)
-            pt_scr = fix_cam.transform_points_screen(
-                pt.view(-1, 3), image_size=self.img_size
-            )[..., 0:2]
+
+            if use_for_loop:
+
+                print("[WARNING]: Current img size exceeds Pytorch3d Rendering limit on A40 so using batched/for loop processing")
+
+                max_size = 440
+
+                def process_points_in_batches(pts, batch_size, process_fn):
+                    num_pts = pts.shape[1]
+                    processed_pts = []
+                    for i in range(0, num_pts, batch_size):
+                        start_idx = i
+                        end_idx = min(i + batch_size, num_pts)
+
+                        # print("Current points processing range: ", start_idx, end_idx)
+
+                        batch_pts = pts[:, start_idx:end_idx]
+                        processed_batch = process_fn(batch_pts)
+                        processed_pts.append(processed_batch)
+                    return torch.cat(processed_pts, dim=1)
+                
+                batch_size = max_size * max_size * max_size  # Adjust as needed
+                processed_pts = process_points_in_batches(pt, batch_size, lambda x: fix_cam.transform_points_screen(x.view(-1, 3), image_size=self.img_size))
+                
+                pt_scr = processed_pts[..., 0:2]
+
+            else:
+                # (num_cam, bs * np, 2)
+                pt_scr = fix_cam.transform_points_screen(
+                    pt.view(-1, 3), image_size=self.img_size
+                )[..., 0:2]
+            
             if len(fix_cam) == 1:
                 pt_scr = pt_scr.unsqueeze(0)
 
@@ -565,10 +667,12 @@ class BoxRenderer:
 
         pt_img = torch.cat(pt_img, 2)
 
+        # print("final pt_img shape: ", pt_img.shape)
+
         return pt_img
 
     @torch.no_grad()
-    def get_feat_frm_hm_cube(self, hm, fix_cam=True, dyn_cam_info=None):
+    def get_feat_frm_hm_cube(self, hm, use_for_loop, fix_cam=True, dyn_cam_info=None):
         """
         :param hm: torch.Tensor of (1, num_img, h, w)
         :return: tupe of ((num_img, h^3, 1), (h^3, 3))
@@ -591,17 +695,37 @@ class BoxRenderer:
             pts = torch.cartesian_prod(pts, pts, pts)
             self._pts = pts
 
+        # print("pts shape: ", self._pts.shape)
+        # print("hm shape: ", hm.shape)
+
         pts_hm = []
         if fix_cam:
-            if self._fix_pts_cam is None:
-                # (np, nc, 2)
-                pts_img = self.get_pt_loc_on_img(self._pts.unsqueeze(0)).squeeze(0)
-                # (nc, np, bs)
-                fix_pts_hm, pts_cam, pts_cam_wei = select_feat_from_hm(
-                    pts_img.transpose(0, 1), hm.transpose(0, 1)[0 : self.num_fix_cam]
-                )
-                self._fix_pts_cam = pts_cam
-                self._fix_pts_cam_wei = pts_cam_wei
+            if self._fix_pts_cam is None or use_for_loop is True:
+                
+                if not use_for_loop:
+                    # (np, nc, 2)
+                    pts_img = self.get_pt_loc_on_img(self._pts.unsqueeze(0), False).squeeze(0)
+
+                    # (nc, np, bs)
+                    fix_pts_hm, pts_cam, pts_cam_wei = select_feat_from_hm(
+                        pts_img.transpose(0, 1), hm.transpose(0, 1)[0 : self.num_fix_cam]
+                    )
+                    self._fix_pts_cam = pts_cam
+                    self._fix_pts_cam_wei = pts_cam_wei
+                
+                else:
+                    if self._pts_img_batched is None:
+                        # (np, nc, 2)
+                        pts_img = self.get_pt_loc_on_img(self._pts.unsqueeze(0), True).squeeze(0)
+                        self._pts_img_batched = pts_img
+
+                    # (nc, np, bs)
+                    fix_pts_hm = select_feat_from_hm_batched(
+                        self._pts_img_batched.transpose(0, 1), hm.transpose(0, 1)[0 : self.num_fix_cam]
+                    )
+
+                    return fix_pts_hm, self._pts
+
             else:
                 pts_cam = self._fix_pts_cam
                 pts_cam_wei = self._fix_pts_cam_wei
@@ -622,6 +746,9 @@ class BoxRenderer:
             pts_hm.append(dyn_pts_hm)
 
         pts_hm = torch.cat(pts_hm, 0)
+
+        # print("final pts shape: ", self._pts.shape, pts_hm.shape)
+
         return pts_hm, self._pts
 
     @torch.no_grad()
@@ -649,14 +776,64 @@ class BoxRenderer:
         assert nc == self.num_img
         assert self.img_size == (h, w)
 
-        pts_hm, pts = self.get_feat_frm_hm_cube(hm, fix_cam, dyn_cam_info)
-        # (bs, np, nc)
-        pts_hm = pts_hm.permute(2, 1, 0)
-        # (bs, np)
-        pts_hm = torch.mean(pts_hm, -1)
-        # (bs)
-        ind_max_pts = torch.argmax(pts_hm, -1)
-        return pts[ind_max_pts]
+        # print("renderer hm shape: ", hm.shape)
+
+        if h <= 330:
+            pts_hm, pts_orig = self.get_feat_frm_hm_cube(hm, False, fix_cam, dyn_cam_info)
+            # (bs, np, nc)
+            pts_hm = pts_hm.permute(2, 1, 0)
+            # (bs, np)
+            pts_hm = torch.mean(pts_hm, -1)
+            # (bs)
+            ind_max_pts = torch.argmax(pts_hm, -1)
+
+            # print("********** Without for Loop")
+            # print("Max idx: ", ind_max_pts)
+            # print("Max coord: ", pts_orig[ind_max_pts])
+            return pts_orig[ind_max_pts]
+        
+        else:
+            print("[WARNING] Eval will be slower !")
+            # print("[WARNING] img_size is large so reverting to for-loop based feature extraction from MVT heat maps")
+
+            max_indices_pts_info, pts_for_loop = self.get_feat_frm_hm_cube(hm, True, fix_cam, dyn_cam_info)
+            sub_pts_max_vals = max_indices_pts_info[1]
+            sub_pts_max_ind = max_indices_pts_info[0]
+
+            max_feat_val_ind = torch.argmax(sub_pts_max_vals)
+            max_ind_actual = sub_pts_max_ind[max_feat_val_ind]
+
+            # print("Max index pt indices: ", sub_pts_max_ind)
+            # print("Max index pt feat vals: ", sub_pts_max_vals)
+            # print("Max index: ", max_ind_actual)
+
+            # print("********** With for Loop")
+            # print("Max idx: ", max_ind_actual)
+            # print("Max coord: ", pts_for_loop[max_ind_actual])
+
+            return pts_for_loop[max_ind_actual].unsqueeze(0)
+
+        # print(pts_orig[ind_max_pts].shape, pts_for_loop[max_ind_actual].shape)
+        # return pts_orig[ind_max_pts]
+        
+        # def approx_equal(tensor1, tensor2, threshold):
+        #     # Compute the absolute difference between the tensors
+        #     diff = torch.abs(tensor1 - tensor2)
+            
+        #     # Check if all elements are within the threshold
+        #     return torch.all(diff <= threshold)
+
+        # # Define the threshold
+        # threshold = 1e-8
+
+        # # Check if tensor1 is approximately equal to tensor2 based on the threshold
+        # is_matching = approx_equal(pts_orig[ind_max_pts], pts_for_loop[max_ind_actual], threshold)
+        # # print("Are both matching ?: ", is_matching)  # Output: True
+        # # print("\n")
+        # assert is_matching
+
+        # # return pts_for_loop[max_ind_actual]
+        # return pts_orig[ind_max_pts]
 
     def free_mem(self):
         """

@@ -24,7 +24,7 @@ import rvt.mvt.config as mvt_cfg_mod
 
 from rvt.mvt.mvt import MVT
 from rvt.models.rvt_agent import print_eval_log, print_loss_log
-from rvt.utils.get_dataset import get_dataset
+from rvt.utils.get_dataset_optimized import get_dataset
 from rvt.utils.rvt_utils import (
     TensorboardManager,
     short_name,
@@ -40,19 +40,11 @@ from rvt.utils.peract_utils import (
 )
 
 # new train takes the dataset as input
-def train(agent, dataset, training_iterations, rank=0):
+def train(agent, data_iter, training_iterations, ddp, rank=0):
     agent.train()
     log = defaultdict(list)
 
-    t_start = time.time()
-    data_iter = iter(dataset)
-    t_end = time.time()
-    print("created data_iter object. Time Cost: {} minutes".format((t_end - t_start) / 60.0))
-
-    t_start = time.time()
     iter_command = range(training_iterations)
-    t_end = time.time()
-    print("created iter_command object. Time Cost: {} minutes".format((t_end - t_start) / 60.0))
 
     for iteration in tqdm.tqdm(
         iter_command, disable=(rank != 0), position=0, leave=True
@@ -63,29 +55,48 @@ def train(agent, dataset, training_iterations, rank=0):
         # print("original raw batch keys: ", raw_batch.keys(), "\n")
         # print("batch replay file name: ", raw_batch['replay_file_name'])
 
-        batch = {
-            k: v.to(agent._device)
-            for k, v in raw_batch.items()
-            if type(v) == torch.Tensor
-        }
-        batch["tasks"] = raw_batch["tasks"]
-        batch["lang_goal"] = raw_batch["lang_goal"]
+        keys_to_keep = ['action_ignore_collisions',
+                        'wpt_local',
+                        'low_dim_state',
+                        'rot_grip_action_indicies',
+                        'ignore_collisions',
+                        'gripper_pose',
+                        'lang_goal_embs',
+                        'img',
+                        'proprio',
+                        'action_rot',
+                        'action_grip',
+                        ]
+
+        keys_to_delete = []
+        for key,val in zip(raw_batch.keys(),raw_batch.values()):
+            if (key not in keys_to_keep and 'rgb' not in key and 'point_cloud' not in key) or 'tp1' in key:
+                keys_to_delete.append(key)
+        
+        for key in keys_to_delete:
+            del raw_batch[key]
+
+        batch = {}
+        for k, v in raw_batch.items():
+            if type(v) == torch.Tensor:
+                batch[k] = v.to(agent._device).squeeze(1)
+                # print("key: ", k, "       val: ", batch[k].shape)
+            else:
+                batch[k] = v
+
         update_args = {
             "step": iteration,
         }
         update_args.update(
             {
                 "replay_sample": batch,
+                "ddp": ddp,
                 "backprop": True,
                 "reset_log": (iteration == 0),
                 "eval_log": False,
             }
         )
-
-        t_start = time.time()
-        agent.update(**update_args)
-        t_end = time.time()
-        print("total epoch time. Time Cost: {} minutes".format((t_end - t_start) / 60.0))
+        agent.update_optimized(**update_args)
 
     if rank == 0:
         log = print_loss_log(agent)
@@ -185,14 +196,11 @@ def experiment(rank, cmd_args, devices, port):
     EPOCHS = exp_cfg.epochs
 
     if IMAGE_SIZE == 128:
-        TRAIN_REPLAY_STORAGE_DIR = "replay/replay_train"
-        TEST_REPLAY_STORAGE_DIR = "replay/replay_val"
-    elif IMAGE_SIZE == 256:
-        TRAIN_REPLAY_STORAGE_DIR = "replay_256x256/replay_train"
-        TEST_REPLAY_STORAGE_DIR = "replay_256x256/replay_val"
+        TRAIN_REPLAY_STORAGE_DIR = "replay_optimized_fp32_all/replay_train"
+        TEST_REPLAY_STORAGE_DIR = "replay_optimized_fp32_all/replay_val"
     else:
         # If IMAGE_SIZE is neither 128 nor 256, raise an AssertionError
-        raise AssertionError("Invalid IMAGE_SIZE provided. Expected 128 or 256.")
+        raise AssertionError("Only IMAGE_SIZE 128 supported right now for optimized training")
     
     log_dir = get_logdir(cmd_args, exp_cfg)
     tasks = get_tasks(exp_cfg)
@@ -217,6 +225,7 @@ def experiment(rank, cmd_args, devices, port):
         sample_mode=exp_cfg.sample_mode,
     )
     train_dataset, _ = get_dataset_func()
+    train_dataset_iter = iter(train_dataset)
     t_end = time.time()
     print("Created Dataset. Time Cost: {} minutes".format((t_end - t_start) / 60.0))
 
@@ -283,7 +292,7 @@ def experiment(rank, cmd_args, devices, port):
             break
 
         print(f"Rank [{rank}], Epoch [{i}]: Training on train dataset")
-        out = train(agent, train_dataset, TRAINING_ITERATIONS, rank)
+        out = train(agent, train_dataset_iter, TRAINING_ITERATIONS, ddp, rank)
 
         print(f"Rank [{rank}], Epoch [{i}]: Finished training")
 

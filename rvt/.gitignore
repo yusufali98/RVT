@@ -1,0 +1,9 @@
+/high_precision_expts/
+/high_precision_optimized_expts/
+/debug_expts/
+/data/
+/replay_256x256/
+/replay_generate/
+/replay_optimized_fp32_all/
+/tb_results/
+/replay*/

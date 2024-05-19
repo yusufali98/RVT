@@ -40,78 +40,72 @@ from rvt.utils.peract_utils import (
 )
 
 # new train takes the dataset as input
-def train(agent, dataset, training_iterations, rank=0):
+def optimize_replay_buffer(agent, output_path, data_iter, training_iterations, rank=0):
     agent.train()
     log = defaultdict(list)
 
-    t_start = time.time()
-    data_iter = iter(dataset)
-    t_end = time.time()
-    print("created data_iter object. Time Cost: {} minutes".format((t_end - t_start) / 60.0))
+    stop_generation = False
 
-    t_start = time.time()
     iter_command = range(training_iterations)
-    t_end = time.time()
-    print("created iter_command object. Time Cost: {} minutes".format((t_end - t_start) / 60.0))
 
+    idx = 0
     for iteration in tqdm.tqdm(
         iter_command, disable=(rank != 0), position=0, leave=True
     ):
 
         raw_batch = next(data_iter)
 
-        # print("original raw batch keys: ", raw_batch.keys(), "\n")
-        # print("batch replay file name: ", raw_batch['replay_file_name'])
+        current_task = raw_batch["tasks"]
+        print("current task: ", current_task, type(current_task))
 
-        batch = {
-            k: v.to(agent._device)
-            for k, v in raw_batch.items()
-            if type(v) == torch.Tensor
-        }
-        batch["tasks"] = raw_batch["tasks"]
-        batch["lang_goal"] = raw_batch["lang_goal"]
+        # print("original raw batch keys: ", raw_batch.keys(), type(raw_batch))
+
+        keys_to_keep = ['rot_grip_action_indicies',
+                        'ignore_collisions',
+                        'gripper_pose',
+                        'lang_goal_embs',
+                        'low_dim_state',
+                        'tasks',
+                        'lang_goal',
+                        'replay_file_name']
+        
+        keys_to_delete = []
+        for key,val in zip(raw_batch.keys(),raw_batch.values()):
+            if (key not in keys_to_keep and 'rgb' not in key and 'point_cloud' not in key) or 'tp1' in key:
+                keys_to_delete.append(key)
+        
+        for key in keys_to_delete:
+            del raw_batch[key]
+        
+        # print("updated raw batch keys: ", raw_batch.keys(), type(raw_batch))
+        print("batch file name: ", raw_batch['replay_file_name'][:10], raw_batch['replay_file_name'][-10:])
+
+        # if 'replay/replay_train/close_jar/8135.replay' in raw_batch['replay_file_name']:
+        #     stop_generation = True
+
+        batch = {}
+        for k, v in raw_batch.items():
+            if type(v) == torch.Tensor:
+                batch[k] = v.to(agent._device)
+            else:
+                batch[k] = v
+
         update_args = {
             "step": iteration,
         }
         update_args.update(
             {
                 "replay_sample": batch,
+                "output_path": output_path,
                 "backprop": True,
                 "reset_log": (iteration == 0),
-                "eval_log": False,
+                "eval_log": False
             }
         )
+        agent.generate_replay_data(**update_args)
 
-        t_start = time.time()
-        agent.update(**update_args)
-        t_end = time.time()
-        print("total epoch time. Time Cost: {} minutes".format((t_end - t_start) / 60.0))
-
-    if rank == 0:
-        log = print_loss_log(agent)
-
-    return log
-
-
-def save_agent(agent, path, epoch):
-    model = agent._network
-    optimizer = agent._optimizer
-    lr_sched = agent._lr_sched
-
-    if isinstance(model, DDP):
-        model_state = model.module.state_dict()
-    else:
-        model_state = model.state_dict()
-
-    torch.save(
-        {
-            "epoch": epoch,
-            "model_state": model_state,
-            "optimizer_state": optimizer.state_dict(),
-            "lr_sched_state": lr_sched.state_dict(),
-        },
-        path,
-    )
+        # if stop_generation:
+        #     breakpoint()
 
 
 def get_tasks(exp_cfg):
@@ -217,6 +211,7 @@ def experiment(rank, cmd_args, devices, port):
         sample_mode=exp_cfg.sample_mode,
     )
     train_dataset, _ = get_dataset_func()
+    train_dataset_iter = iter(train_dataset)
     t_end = time.time()
     print("Created Dataset. Time Cost: {} minutes".format((t_end - t_start) / 60.0))
 
@@ -276,37 +271,19 @@ def experiment(rank, cmd_args, devices, port):
         exp_cfg.freeze()
         tb = TensorboardManager(log_dir)
 
-    print("Start training ...", flush=True)
+    print("Start optimizing replay buffer ...", flush=True)
+    output_path = exp_cfg.optimized_replay_save_path        # Set the output save path while generating the optimized replay buffer
+    print("Saving to: ", output_path)
+    
     i = start_epoch
     while True:
-        if i == end_epoch:
+        if i == 1:      # Only need to run one epoch to cover the entire dataset and regenerate the optimzed replay buffer
             break
 
-        print(f"Rank [{rank}], Epoch [{i}]: Training on train dataset")
-        out = train(agent, train_dataset, TRAINING_ITERATIONS, rank)
+        print(f"Rank [{rank}], Epoch [{i}]: Generating optimsied replay buffer dataset")
+        optimize_replay_buffer(agent, output_path, train_dataset_iter, TRAINING_ITERATIONS, rank)
 
         print(f"Rank [{rank}], Epoch [{i}]: Finished training")
-
-        if rank == 0:
-            t_start = time.time()
-
-            tb.update("train", i, out)
-            
-            t_end = time.time()
-            print("Updated tensorboard. Time Cost: {} minutes".format((t_end - t_start) / 60.0))
-
-        if rank == 0:
-            # TODO: add logic to only save some models
-            
-            t_start = time.time()
-            save_agent(agent, f"{log_dir}/model_{i}.pth", i)
-            t_end = time.time()
-            print("saved current agent ckpt. Time Cost: {} minutes".format((t_end - t_start) / 60.0))
-
-            t_start = time.time()
-            save_agent(agent, f"{log_dir}/model_last.pth", i)
-            t_end = time.time()
-            print("saved last agent ckpt. Time Cost: {} minutes".format((t_end - t_start) / 60.0))
 
         i += 1
 

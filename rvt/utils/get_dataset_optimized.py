@@ -10,7 +10,8 @@ import clip
 
 from rvt.libs.peract.helpers.utils import extract_obs
 from rvt.utils.rvt_utils import ForkedPdb
-from rvt.utils.dataset import create_replay, fill_replay
+# from rvt.utils.dataset import create_replay, fill_replay
+from rvt.utils.dataset_optimized import create_replay_optimized, fill_replay_optimized
 from rvt.utils.peract_utils import (
     CAMERAS,
     SCENE_BOUNDS,
@@ -41,21 +42,13 @@ def get_dataset(
     sample_mode="random",
 ):
 
-    train_replay_buffer = create_replay(
+    train_replay_buffer = create_replay_optimized(
         batch_size=BATCH_SIZE_TRAIN,
         timesteps=1,
         disk_saving=True,
         cameras=CAMERAS,
         voxel_sizes=VOXEL_SIZES,
     )
-    if not only_train:
-        test_replay_buffer = create_replay(
-            batch_size=BATCH_SIZE_TEST,
-            timesteps=1,
-            disk_saving=True,
-            cameras=CAMERAS,
-            voxel_sizes=VOXEL_SIZES,
-        )
 
     # load pre-trained language model
     try:
@@ -104,7 +97,7 @@ def get_dataset(
         #         print(f"remove {test_replay_storage_folder}")
 
         # print("----- Train Buffer -----")
-        fill_replay(
+        fill_replay_optimized(
             replay=train_replay_buffer,
             task=task,
             task_replay_storage_folder=train_replay_storage_folder,
@@ -124,28 +117,6 @@ def get_dataset(
             device=device,
         )
 
-        if not only_train:
-            # print("----- Test Buffer -----")
-            fill_replay(
-                replay=test_replay_buffer,
-                task=task,
-                task_replay_storage_folder=test_replay_storage_folder,
-                start_idx=0,
-                num_demos=NUM_VAL,
-                demo_augmentation=True,
-                demo_augmentation_every_n=DEMO_AUGMENTATION_EVERY_N,
-                cameras=CAMERAS,
-                rlbench_scene_bounds=SCENE_BOUNDS,
-                voxel_sizes=VOXEL_SIZES,
-                rotation_resolution=ROTATION_RESOLUTION,
-                crop_augmentation=False,
-                data_path=data_path_val,
-                episode_folder=EPISODE_FOLDER,
-                variation_desriptions_pkl=VARIATION_DESCRIPTIONS_PKL,
-                clip_model=clip_model,
-                device=device,
-            )
-
     # delete the CLIP model since we have already extracted language features
     del clip_model
     with torch.cuda.device(device):
@@ -163,10 +134,6 @@ def get_dataset(
     if only_train:
         test_dataset = None
     else:
-        test_wrapped_replay = PyTorchReplayBuffer(
-            test_replay_buffer,
-            sample_mode=sample_mode,
-            num_workers=num_workers,
-        )
-        test_dataset = test_wrapped_replay.dataset()
+        raise AssertionError("Testing during trainig not supported for optimized training runs !")
+
     return train_dataset, test_dataset

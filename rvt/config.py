@@ -17,6 +17,10 @@ _C.epochs = 20
 _C.num_workers = 0
 # 'transition_uniform' or 'task_uniform'
 _C.sample_distribution_mode = 'transition_uniform'
+# 'random' or 'enumerate'
+_C.sample_mode = 'random'
+# this parameter decides the output save path when generating the optimized replay buffer
+_C.optimized_replay_save_path = "replay_optimized_fp32_all"
 
 # arguments present in both peract and rvt
 # some of them donot support every possible combination in peract

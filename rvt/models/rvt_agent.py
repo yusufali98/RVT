@@ -24,6 +24,17 @@ from yarr.agents.agent import ActResult
 from rvt.utils.dataset import _clip_encode_text
 from rvt.utils.lr_sched_utils import GradualWarmupScheduler
 
+import os
+import pickle
+import gzip
+import h5py
+from tqdm import tqdm
+import time
+
+import bz2, lzma, brotli
+import bz2file
+import zstandard as zstd
+import py7zr
 
 def eval_con(gt, pred):
     assert gt.shape == pred.shape, print(f"{gt.shape} {pred.shape}")
@@ -497,18 +508,24 @@ class RVTAgent:
         action_rot = action_gripper_pose[:, 3:7]  # (b, 4)
         action_grip = action_rot_grip[:, -1]  # (b,)
         lang_goal_embs = replay_sample["lang_goal_embs"][:, -1].float()
-        tasks = replay_sample["tasks"]
+        # tasks = replay_sample["tasks"]
 
         proprio = arm_utils.stack_on_channel(replay_sample["low_dim_state"])  # (b, 4)
         return_out = {}
 
+        # t_start = time.time()
         obs, pcd = peract_utils._preprocess_inputs(replay_sample, self.cameras)
+        # t_end = time.time()
+        # print("peract obs preprocess. Time Cost: {} minutes".format((t_end - t_start) / 60.0))
 
+        # t_start = time.time()
         with torch.no_grad():
             pc, img_feat = rvt_utils.get_pc_img_feat(
                 obs,
                 pcd,
             )
+            # pc shape: batch_size x (num_peract_cameras * peract_img_shape * peract_img_shape) x 3; last channel is XYZ
+            # img_feat shape: batch_size x (num_peract_cameras * peract_img_shape * peract_img_shape) x 3; last channel is RGB
 
             if self._transform_augmentation and backprop:
                 action_trans_con, action_rot, pc = apply_se3_aug_con(
@@ -523,6 +540,8 @@ class RVTAgent:
 
             # TODO: vectorize
             action_rot = action_rot.cpu().numpy()
+
+            # action_rot shape is batch_size x 7 so we only for loop through the batch_size (which is 3 normally)
             for i, _action_rot in enumerate(action_rot):
                 _action_rot = aug_utils.normalize_quaternion(_action_rot)
                 if _action_rot[-1] < 0:
@@ -568,7 +587,10 @@ class RVTAgent:
                 img_aug = 0
 
             dyn_cam_info = None
+        # t_end = time.time()
+        # print("prepare pc and img_feat objects. Time Cost: {} minutes".format((t_end - t_start) / 60.0))
 
+        # t_start = time.time()
         out = self._network(
             pc=pc,
             img_feat=img_feat,
@@ -576,7 +598,10 @@ class RVTAgent:
             lang_emb=lang_goal_embs,
             img_aug=img_aug,
         )
+        # t_end = time.time()
+        # print("network forward pass. Time Cost: {} minutes".format((t_end - t_start) / 60.0))
 
+        # t_start = time.time()
         q_trans, rot_q, grip_q, collision_q, y_q, pts = self.get_q(
             out, dims=(bs, nc, h, w)
         )
@@ -593,7 +618,10 @@ class RVTAgent:
         action_trans = self.get_action_trans(
             wpt_local, pts, out, dyn_cam_info, dims=(bs, nc, h, w)
         )
+        # t_end = time.time()
+        # print("q pred and action label. Time Cost: {} minutes".format((t_end - t_start) / 60.0))
 
+        # t_start = time.time()
         loss_log = {}
         if backprop:
             # cross-entropy loss
@@ -661,6 +689,8 @@ class RVTAgent:
             }
             manage_loss_log(self, loss_log, reset_log=reset_log)
             return_out.update(loss_log)
+        # t_end = time.time()
+        # print("backprop time. Time Cost: {} minutes".format((t_end - t_start) / 60.0))
 
         if eval_log:
             with torch.no_grad():
@@ -748,9 +778,11 @@ class RVTAgent:
         _, rot_q, grip_q, collision_q, y_q, _ = self.get_q(
             out, dims=(bs, nc, h, w), only_pred=True
         )
+        # print("################ Beginning trans prediction using heat maps.......")
         pred_wpt, pred_rot_quat, pred_grip, pred_coll = self.get_pred(
             out, rot_q, grip_q, collision_q, y_q, rev_trans, dyn_cam_info
         )
+        # print("################ Trans prediction done !")
 
         continuous_action = np.concatenate(
             (
@@ -857,3 +889,417 @@ class RVTAgent:
 
     def train(self):
         self._network.train()
+
+    def generate_replay_data(
+        self,
+        step: int,
+        replay_sample: dict,
+        output_path: str,
+        backprop: bool = True,
+        eval_log: bool = False,
+        reset_log: bool = False,
+    ) -> dict:
+
+        # print("entering replay optimization function...")
+
+        assert replay_sample["rot_grip_action_indicies"].shape[1:] == (1, 4)
+        assert replay_sample["ignore_collisions"].shape[1:] == (1, 1)
+        assert replay_sample["gripper_pose"].shape[1:] == (1, 7)
+        assert replay_sample["lang_goal_embs"].shape[1:] == (1, 77, 512)
+        assert replay_sample["low_dim_state"].shape[1:] == (
+            1,
+            self._net_mod.proprio_dim,
+        )
+
+        # sample
+        action_rot_grip = replay_sample["rot_grip_action_indicies"][
+            :, -1
+        ].int()  # (b, 4) of int
+        action_ignore_collisions = replay_sample["ignore_collisions"][
+            :, -1
+        ].int()  # (b, 1) of int
+        action_gripper_pose = replay_sample["gripper_pose"][:, -1]  # (b, 7)
+        action_trans_con = action_gripper_pose[:, 0:3]  # (b, 3)
+        # rotation in quaternion xyzw
+        action_rot = action_gripper_pose[:, 3:7]  # (b, 4)
+        action_grip = action_rot_grip[:, -1]  # (b,)
+        lang_goal_embs = replay_sample["lang_goal_embs"][:, -1].float()
+        # tasks = replay_sample["tasks"]
+
+        proprio = arm_utils.stack_on_channel(replay_sample["low_dim_state"])  # (b, 4)
+        return_out = {}
+
+        obs, pcd = peract_utils._preprocess_inputs(replay_sample, self.cameras)
+
+        with torch.no_grad():
+            pc, img_feat = rvt_utils.get_pc_img_feat(
+                obs,
+                pcd,
+            )
+            # pc shape: batch_size x (num_peract_cameras * peract_img_shape * peract_img_shape) x 3; last channel is XYZ
+            # img_feat shape: batch_size x (num_peract_cameras * peract_img_shape * peract_img_shape) x 3; last channel is RGB
+
+            if self._transform_augmentation and backprop:
+                action_trans_con, action_rot, pc = apply_se3_aug_con(
+                    pcd=pc,
+                    action_gripper_pose=action_gripper_pose,
+                    bounds=torch.tensor(self.scene_bounds),
+                    trans_aug_range=torch.tensor(self._transform_augmentation_xyz),
+                    rot_aug_range=torch.tensor(self._transform_augmentation_rpy),
+                )
+                action_trans_con = torch.tensor(action_trans_con).to(pc.device)
+                action_rot = torch.tensor(action_rot).to(pc.device)
+
+            # TODO: vectorize
+            action_rot = action_rot.cpu().numpy()
+
+            # action_rot shape is batch_size x 7 so we only for loop through the batch_size (which is 3 normally)
+            for i, _action_rot in enumerate(action_rot):
+                _action_rot = aug_utils.normalize_quaternion(_action_rot)
+                if _action_rot[-1] < 0:
+                    _action_rot = -_action_rot
+                action_rot[i] = _action_rot
+
+            pc, img_feat = rvt_utils.move_pc_in_bound(
+                pc, img_feat, self.scene_bounds, no_op=not self.move_pc_in_bound
+            )
+            wpt = [x[:3] for x in action_trans_con]
+
+            wpt_local = []
+            rev_trans = []
+            for _pc, _wpt in zip(pc, wpt):
+                a, b = mvt_utils.place_pc_in_cube(
+                    _pc,
+                    _wpt,
+                    with_mean_or_bounds=self._place_with_mean,
+                    scene_bounds=None if self._place_with_mean else self.scene_bounds,
+                )
+                wpt_local.append(a.unsqueeze(0))
+                rev_trans.append(b)
+
+            wpt_local = torch.cat(wpt_local, axis=0)
+
+            # TODO: Vectorize
+            pc = [
+                mvt_utils.place_pc_in_cube(
+                    _pc,
+                    with_mean_or_bounds=self._place_with_mean,
+                    scene_bounds=None if self._place_with_mean else self.scene_bounds,
+                )[0]
+                for _pc in pc
+            ]
+
+            bs = len(pc)
+            nc = self._net_mod.num_img
+            h = w = self._net_mod.img_size
+
+            if backprop and (self.img_aug != 0):
+                img_aug = self.img_aug
+            else:
+                img_aug = 0
+
+            dyn_cam_info = None
+
+        self._network.verify_inp(pc, img_feat, proprio, lang_goal_embs, img_aug)
+        
+        # img shape is (bs x 5 x 10 x 220 x 220):
+        # In the 10 channels : [0:3] are XYZ
+        #                      [3:6] 3 are RGB
+        #                      [6] is Depth
+        #                      [7:] is pixel location
+        img = self._network.render(
+            pc,
+            img_feat,
+            img_aug,
+            dyn_cam_info=None,
+        )
+
+        # variables to save: 
+        # self._network.mvt1(): img, proprio, lang_emb
+        # self._get_one_hot_expert_actions(): action_rot, action_grip, action_ignore_collisions
+        # self.get_action_trans(): wpt_local, dyn_cam_info
+
+        # Add these to the replay_sample dictionary
+        # replay_sample["img_xyz"] = img[:,:,0:3]
+        # replay_sample["img_rgb"] = img[:,:,3:6]
+        # replay_sample["img_d"] = img[:,:,6].unsqueeze(2)
+        # replay_sample["img_pix_loc"] = img[:,:,7:]
+        replay_sample["img"] = img
+
+        replay_sample["proprio"] = proprio
+        replay_sample["lang_goal_embs"] = lang_goal_embs
+        replay_sample["action_rot"] = action_rot  # Ensure it's a tensor
+        replay_sample["action_grip"] = action_grip
+        replay_sample["action_ignore_collisions"] = action_ignore_collisions
+        replay_sample["wpt_local"] = wpt_local
+        replay_sample["dyn_cam_info"] = dyn_cam_info
+
+        keys_to_keep = [# 'rot_grip_action_indicies',
+                        # 'ignore_collisions',
+                        # 'gripper_pose',
+                        'lang_goal_embs',
+                        # 'low_dim_state',
+                        'replay_file_name',
+                        'img',
+                        # 'img_xyz',
+                        # 'img_rgb',
+                        # 'img_d',
+                        # 'img_pix_loc',
+                        'proprio',
+                        'action_rot',
+                        'action_grip',
+                        'action_ignore_collisions',
+                        'wpt_local']
+                        # 'dyn_cam_info']
+        
+        keys_to_delete = []
+        for key,val in zip(replay_sample.keys(),replay_sample.values()):
+            if key not in keys_to_keep:
+                keys_to_delete.append(key)
+        
+        for key in keys_to_delete:
+            del replay_sample[key]
+
+        print("Saving optimized replay files...")
+
+        for i in range(bs):
+            
+            sample_data = {}
+
+            for key,val in zip(replay_sample.keys(), replay_sample.values()):
+                
+                if key == 'replay_file_name':
+                    continue
+
+                # print("key....: ", key)
+                
+                if isinstance(val, torch.Tensor):
+                    # print("       val shape: ", val[i].shape)
+                    sample = val[i].cpu().detach().numpy()  #.astype(np.float16)
+
+                    # if key == 'action_grip':
+                        # print(" action grip: ", val[i], val)
+
+                else:
+                    # print("------------------> val len: ", len(val[i]))
+                    # print("...converting to numpy array....")
+                    sample = np.array(val[i])       #.astype(np.float16)
+                    # print("------------------> val shape: ", sample.shape)
+                
+                sample_data[key] = sample
+                       
+            # File path for this sample
+            file_path = str(replay_sample['replay_file_name'][i])
+            directory_name = os.path.dirname(file_path)
+            path_parts = file_path.split("/")
+            path_parts[0] = output_path
+            modified_file_path = os.path.join(*path_parts)
+            final_path = modified_file_path[:-2]
+
+            # Ensure the directory exists; create if it doesn't
+            directory = os.path.dirname(final_path)
+            if not os.path.exists(directory):
+                os.makedirs(directory)
+
+            # python built-in compressor algorithms
+            if not os.path.exists(final_path):
+                with open(final_path, 'wb') as f:
+                    pickle.dump(sample_data, f)
+                # with gzip.open(final_path + '.gz', 'wb') as f:
+                # with bz2.open(final_path + '.bz2', 'wb') as f:
+                # with lzma.open(final_path + '.lzma', 'wb') as f:
+                # with bz2file.BZ2File(final_path + '.pbz2', 'w') as f:
+
+            # brotli/lzma compression
+            # serialized_data = pickle.dumps(sample_data)
+            # compressed_data = brotli.compress(serialized_data)
+            # compressed_data = lzma.compress(serialized_data)
+            # compressor = zstd.ZstdCompressor(level=22)  # Specify compression level (1-22)
+            # compressed_data = compressor.compress(serialized_data)
+            # with open(final_path + '.zstd', 'wb') as f:
+            #     f.write(compressed_data)
+        
+        print("Saved optimized replay files !")
+
+        # Delete the replay sample and any large tensor
+        del replay_sample
+
+        # Free up CUDA memory
+        with torch.cuda.device(self._device):
+            torch.cuda.empty_cache()
+
+        # breakpoint()
+
+
+    def update_optimized(
+        self,
+        step: int,
+        replay_sample: dict,
+        ddp: bool,
+        backprop: bool = True,
+        eval_log: bool = False,
+        reset_log: bool = False,
+    ) -> dict:
+
+        img = replay_sample["img"].to(torch.float32)
+        proprio = replay_sample["proprio"].to(torch.float32)
+        lang_emb = replay_sample["lang_goal_embs"].to(torch.float32)
+
+        bs = len(img)
+        nc = self._net_mod.num_img
+        h = w = self._net_mod.img_size
+        
+        # DNN forward pass
+        if ddp:
+            out = self._network.module.mvt1(img=img, proprio=proprio, lang_emb=lang_emb)
+        else:
+            out = self._network.mvt1(img=img, proprio=proprio, lang_emb=lang_emb)
+
+        q_trans, rot_q, grip_q, collision_q, y_q, pts = self.get_q(
+            out, dims=(bs, nc, h, w)
+        )
+
+        action_rot = replay_sample["action_rot"]
+        action_grip = replay_sample["action_grip"]
+        action_ignore_collisions = replay_sample["action_ignore_collisions"]
+
+        action_rot = action_rot.cpu().detach().numpy()
+        action_grip = action_grip.to(torch.int32)
+        action_ignore_collisions = action_ignore_collisions.to(torch.int32)
+
+        (
+            action_rot_x_one_hot,
+            action_rot_y_one_hot,
+            action_rot_z_one_hot,
+            action_grip_one_hot,  # (bs, 2)
+            action_collision_one_hot,  # (bs, 2)
+        ) = self._get_one_hot_expert_actions(
+            bs, action_rot, action_grip, action_ignore_collisions, device=self._device
+        )
+
+        wpt_local = replay_sample["wpt_local"].to(torch.float32)
+        dyn_cam_info = None         # NOTE: dyn_cam_info is set to None for trainig with optimized erplay buffer
+
+        action_trans = self.get_action_trans(
+            wpt_local, pts, out, dyn_cam_info, dims=(bs, nc, h, w)
+        )
+
+        loss_log = {}
+        return_out = {}
+
+        # cross-entropy loss
+        trans_loss = self._cross_entropy_loss(q_trans, action_trans).mean()
+        rot_loss_x = rot_loss_y = rot_loss_z = 0.0
+        grip_loss = 0.0
+        collision_loss = 0.0
+        if self.add_rgc_loss:
+            rot_loss_x = self._cross_entropy_loss(
+                rot_q[
+                    :,
+                    0 * self._num_rotation_classes : 1 * self._num_rotation_classes,
+                ],
+                action_rot_x_one_hot.argmax(-1),
+            ).mean()
+
+            rot_loss_y = self._cross_entropy_loss(
+                rot_q[
+                    :,
+                    1 * self._num_rotation_classes : 2 * self._num_rotation_classes,
+                ],
+                action_rot_y_one_hot.argmax(-1),
+            ).mean()
+
+            rot_loss_z = self._cross_entropy_loss(
+                rot_q[
+                    :,
+                    2 * self._num_rotation_classes : 3 * self._num_rotation_classes,
+                ],
+                action_rot_z_one_hot.argmax(-1),
+            ).mean()
+
+            grip_loss = self._cross_entropy_loss(
+                grip_q,
+                action_grip_one_hot.argmax(-1),
+            ).mean()
+
+            collision_loss = self._cross_entropy_loss(
+                collision_q, action_collision_one_hot.argmax(-1)
+            ).mean()
+
+        total_loss = (
+            trans_loss
+            + rot_loss_x
+            + rot_loss_y
+            + rot_loss_z
+            + grip_loss
+            + collision_loss
+        )
+
+        self._optimizer.zero_grad(set_to_none=True)
+        total_loss.backward()
+        self._optimizer.step()
+        self._lr_sched.step()
+
+        loss_log = {
+            "total_loss": total_loss.item(),
+            "trans_loss": trans_loss.item(),
+            "rot_loss_x": rot_loss_x.item(),
+            "rot_loss_y": rot_loss_y.item(),
+            "rot_loss_z": rot_loss_z.item(),
+            "grip_loss": grip_loss.item(),
+            "collision_loss": collision_loss.item(),
+            "lr": self._optimizer.param_groups[0]["lr"],
+        }
+        manage_loss_log(self, loss_log, reset_log=reset_log)
+        return_out.update(loss_log)
+        
+        # t_end = time.time()
+        # print("backprop time. Time Cost: {} minutes".format((t_end - t_start) / 60.0))
+
+        return return_out
+        
+
+
+from multiprocessing import Process
+
+def save_sample_data(sample_data, file_path):
+    # Save this sample's data to the specified file using torch.save
+    torch.save(sample_data, file_path)
+
+def save_samples_subset(replay_sample, subset_indices):
+    for i in subset_indices:
+        sample_data = {}
+        for key, val in zip(replay_sample.keys(), replay_sample.values()):
+            if val is not None:
+                sample_data[key] = val[i]
+        
+        # File path for this sample
+        file_path = str(replay_sample['replay_file_name'][i])
+        directory_name = os.path.dirname(file_path)
+        path_parts = file_path.split("/")
+        path_parts[0] = "replay_optimized"
+        modified_file_path = os.path.join(*path_parts)
+        final_path = os.path.join("/workspace/RVT/rvt", modified_file_path)
+
+        # Ensure the directory exists; create if it doesn't
+        directory = os.path.dirname(file_path)
+        if not os.path.exists(directory):
+            os.makedirs(directory)
+
+        # Save the sample data
+        save_sample_data(sample_data, file_path)
+
+def save_samples_in_parallel(replay_sample, bs, num_processes):
+    processes = []
+    subset_size = bs // num_processes
+    for i in range(num_processes):
+        subset_indices = list(range(i * subset_size, (i + 1) * subset_size))
+        if i == num_processes - 1:  # Add remaining indices to the last process
+            subset_indices += list(range((i + 1) * subset_size, bs))
+        p = Process(target=save_samples_subset, args=(replay_sample, subset_indices))
+        p.start()
+        processes.append(p)
+
+    # Wait for all processes to finish
+    for p in processes:
+        p.join()

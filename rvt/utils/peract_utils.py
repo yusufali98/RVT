@@ -10,6 +10,8 @@ from peract_colab.arm.utils import stack_on_channel
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from rvt.utils.lr_sched_utils import GradualWarmupScheduler
 
+import os
+
 # Contants
 # TODO: Unclear about the best way to handle them
 CAMERAS = ["front", "left_shoulder", "right_shoulder", "wrist"]
@@ -21,7 +23,12 @@ SCENE_BOUNDS = [
     0.5,
     1.6,
 ]  # [x_min, y_min, z_min, x_max, y_max, z_max] - the metric volume to be voxelized
-IMAGE_SIZE = 128
+
+
+# IMAGE_SIZE = 128
+IMAGE_SIZE = int(os.getenv('IMAGE_SIZE', None))  # Default to 128 if not set
+print(f"The image size has been set to: {IMAGE_SIZE}")
+
 VOXEL_SIZES = [100]  # 100x100x100 voxels
 LOW_DIM_SIZE = 4  # {left_finger_joint, right_finger_joint, gripper_open, timestep}
 

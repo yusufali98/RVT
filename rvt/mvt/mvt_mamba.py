@@ -21,7 +21,7 @@ from rvt.mvt.attn import (
 )
 
 
-class MVT(nn.Module):
+class MVT_Mamba(nn.Module):
     def __init__(
         self,
         depth,
@@ -48,6 +48,10 @@ class MVT(nn.Module):
         add_pixel_loc,
         add_depth,
         pe_fix,
+        use_mamba,
+        mamba_d_model,
+        mamba_bidirectional,
+        mamba_d_state,
         renderer_device="cuda:0",
         renderer=None,
     ):
@@ -102,6 +106,8 @@ class MVT(nn.Module):
         self.add_pixel_loc = add_pixel_loc
         self.add_depth = add_depth
         self.pe_fix = pe_fix
+
+        print("******************* Using MVT Mamba Variant ! *******************")
 
         print(f"MVT Vars: {vars(self)}")
 
@@ -225,11 +231,20 @@ class MVT(nn.Module):
         self.layers = nn.ModuleList([])
         cache_args = {"_cache": weight_tie_layers}
         attn_depth = depth
-
+        
+        layer_idx = 0
         for _ in range(attn_depth):
+            # self.layers.append(
+            #     nn.ModuleList([get_attn_attn(**cache_args), get_attn_ff(**cache_args)])
+            # )
             self.layers.append(
-                nn.ModuleList([get_attn_attn(**cache_args), get_attn_ff(**cache_args)])
+                create_block(
+                    d_model=mamba_d_model,
+                    ssm_cfg={"d_state": mamba_d_state},
+                    bidirectional=mamba_bidirectional
+                )
             )
+            layer_idx += 1
 
         self.up0 = Conv2DUpsampleBlock(
             self.input_dim_before_seq,
@@ -374,11 +389,15 @@ class MVT(nn.Module):
             # within image self attention
             imgx = imgx.reshape(bs * num_img, num_pat_img * num_pat_img, -1)
 
-            # print("imgx shape b4 within-img attn: ", imgx.shape)
+            # imgx is a tensor with shape (batch_size * num_imgs, num_patches * num_pacthes, attn_dim)
+            # imgx is (15, 900, 512) = (3 * 5, 30 * 30, 512)
+            # attn_dim is usually 512
 
-            for self_attn, self_ff in self.layers[: len(self.layers) // 2]:
-                imgx = self_attn(imgx) + imgx
-                imgx = self_ff(imgx) + imgx
+            # print("imgx shape b4 within-img attn: ", imgx.shape)
+            for mamba_block in self.layers[: len(self.layers) // 2]:
+                # imgx = self_attn(imgx) + imgx
+                # imgx = self_ff(imgx) + imgx
+                imgx, _ = mamba_block(imgx)             # mamba_block also return residual but we dont use it
             
             # print("imgx shape after within-img attn: ", imgx.shape)
 
@@ -386,10 +405,13 @@ class MVT(nn.Module):
             x = torch.cat((lx, imgx), dim=1)
             # cross attention
 
+            # x is a tensor with shape (batch_size, num_imgs * num_patches * num_patches + num_lang_toks, attn_dim)
+            # imgx is (3, 4577, 512) = (3, 5 * 30 * 30 + 77, 512)
+            # attn_dim is usually 512
+
             # print("imgx shape b4 cross-img attn: ", x.shape)
-            for self_attn, self_ff in self.layers[len(self.layers) // 2 :]:
-                x = self_attn(x) + x
-                x = self_ff(x) + x
+            for mamba_block in self.layers[len(self.layers) // 2 :]:
+                x, _ = mamba_block(x)                   # mamba_block also return residual but we dont use it
             # print("imgx shape after cross-img attn: ", x.shape)
 
         else:
@@ -444,11 +466,16 @@ class MVT(nn.Module):
         Estimate the q-values given output from mvt
         :param out: output from mvt
         """
+
+        # print("################ Running wpt prediciton.....")
+
         nc = self.num_img
         h = w = self.img_size
         bs = out["trans"].shape[0]
 
         q_trans = out["trans"].view(bs, nc, h * w)
+        # print("q_trans shape: ", q_trans.shape)
+
         hm = torch.nn.functional.softmax(q_trans, 2)
         hm = hm.view(bs, nc, h, w)
 
@@ -456,6 +483,8 @@ class MVT(nn.Module):
             dyn_cam_info_itr = (None,) * bs
         else:
             dyn_cam_info_itr = dyn_cam_info
+        
+        # print("hm shape: ", hm.shape)
 
         pred_wpt = [
             self.renderer.get_max_3d_frm_hm_cube(
@@ -471,6 +500,8 @@ class MVT(nn.Module):
 
         assert y_q is None
 
+        # print("################ WPT prediction done !")
+
         return pred_wpt
 
     def free_mem(self):
@@ -479,3 +510,121 @@ class MVT(nn.Module):
         """
         print("Freeing up some memory")
         self.renderer.free_mem()
+
+
+"""Caduceus model for Hugging Face.
+
+"""
+
+from functools import partial
+from typing import Optional, Tuple, Union
+
+from mamba_ssm.modules.mamba_simple import Mamba, Block
+
+try:
+    from mamba_ssm.ops.triton.layernorm import RMSNorm, layer_norm_fn, rms_norm_fn
+except ImportError:
+    RMSNorm, layer_norm_fn, rms_norm_fn = None, None, None
+
+
+def create_block(
+        d_model,
+        ssm_cfg=None,
+        norm_epsilon=1e-5,
+        rms_norm=False,
+        residual_in_fp32=False,
+        fused_add_norm=False,
+        layer_idx=None,
+        bidirectional=False,
+        bidirectional_strategy="add",
+        bidirectional_weight_tie=True,
+        rcps=False,
+        device=None,
+        dtype=None,
+):
+    """Create Caduceus block.
+
+    Adapted from: https://github.com/state-spaces/mamba/blob/main/mamba_ssm/models/mixer_seq_simple.py
+    """
+    if ssm_cfg is None:
+        ssm_cfg = {}
+    factory_kwargs = {"device": device, "dtype": dtype}
+    bidirectional_kwargs = {
+        "bidirectional": bidirectional,
+        "bidirectional_strategy": bidirectional_strategy,
+        "bidirectional_weight_tie": bidirectional_weight_tie,
+    }
+    mixer_cls = partial(BiMambaWrapper, layer_idx=layer_idx, **ssm_cfg, **bidirectional_kwargs, **factory_kwargs)
+    norm_cls = partial(
+        nn.LayerNorm if not rms_norm else RMSNorm, eps=norm_epsilon, **factory_kwargs
+    )
+    block_cls = Block
+    block = block_cls(
+        d_model,
+        mixer_cls,
+        norm_cls=norm_cls,
+        fused_add_norm=fused_add_norm,
+        residual_in_fp32=residual_in_fp32,
+    )
+    block.layer_idx = layer_idx
+    return block
+
+
+class BiMambaWrapper(nn.Module):
+    """Thin wrapper around Mamba to support bi-directionality."""
+
+    def __init__(
+            self,
+            d_model: int,
+            bidirectional: bool = True,
+            bidirectional_strategy: Optional[str] = "add",
+            bidirectional_weight_tie: bool = True,
+            **mamba_kwargs,
+    ):
+        super().__init__()
+        if bidirectional and bidirectional_strategy is None:
+            bidirectional_strategy = "add"  # Default strategy: `add`
+        if bidirectional and bidirectional_strategy not in ["add", "ew_multiply"]:
+            raise NotImplementedError(f"`{bidirectional_strategy}` strategy for bi-directionality is not implemented!")
+        self.bidirectional = bidirectional
+        self.bidirectional_strategy = bidirectional_strategy
+        self.mamba_fwd = Mamba(
+            d_model=d_model,
+            **mamba_kwargs
+        )
+        if bidirectional:
+
+            print("Using Bidirectional Mamba....")
+
+            self.mamba_rev = Mamba(
+                d_model=d_model,
+                **mamba_kwargs
+            )
+            if bidirectional_weight_tie:  # Tie in and out projections (where most of param count lies)
+                self.mamba_rev.in_proj.weight = self.mamba_fwd.in_proj.weight
+                self.mamba_rev.in_proj.bias = self.mamba_fwd.in_proj.bias
+                self.mamba_rev.out_proj.weight = self.mamba_fwd.out_proj.weight
+                self.mamba_rev.out_proj.bias = self.mamba_fwd.out_proj.bias
+        else:
+            print("Using Unidirectional Mamba....")
+            self.mamba_rev = None
+
+    def forward(self, hidden_states, inference_params=None):
+        """Bidirectional-enabled forward pass
+
+        hidden_states: (B, L, D)
+        Returns: same shape as hidden_states
+        """
+        out = self.mamba_fwd(hidden_states, inference_params=inference_params)
+        if self.bidirectional:
+            out_rev = self.mamba_rev(
+                hidden_states.flip(dims=(1,)),  # Flip along the sequence length dimension
+                inference_params=inference_params
+            ).flip(dims=(1,))  # Flip back for combining with forward hidden states
+            if self.bidirectional_strategy == "add":
+                out = out + out_rev
+            elif self.bidirectional_strategy == "ew_multiply":
+                out = out * out_rev
+            else:
+                raise NotImplementedError(f"`{self.bidirectional_strategy}` for bi-directionality not implemented!")
+        return out

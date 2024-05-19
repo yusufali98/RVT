@@ -28,10 +28,12 @@ def get_pc_img_feat(obs, pcd, bounds=None):
     bs = obs[0][0].shape[0]
     # concatenating the points from all the cameras
     # (bs, num_points, 3)
+
     pc = torch.cat([p.permute(0, 2, 3, 1).reshape(bs, -1, 3) for p in pcd], 1)
     _img_feat = [o[0] for o in obs]
     img_dim = _img_feat[0].shape[1]
     # (bs, num_points, 3)
+
     img_feat = torch.cat(
         [p.permute(0, 2, 3, 1).reshape(bs, -1, img_dim) for p in _img_feat], 1
     )

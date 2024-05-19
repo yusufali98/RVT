@@ -137,6 +137,7 @@ def create_replay(
         ReplayElement("keypoint_frame", (), int),
         ReplayElement("next_keypoint_frame", (), int),
         ReplayElement("sample_frame", (), int),
+        ReplayElement("replay_file_name", (1,), object),
     ]
 
     replay_buffer = (
