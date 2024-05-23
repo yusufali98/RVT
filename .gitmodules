@@ -6,7 +6,7 @@
 	url = https://github.com/MohitShridhar/RLBench.git
 [submodule "libs/YARR"]
 	path = rvt/libs/YARR
-        url = https://github.com/NVlabs/YARR.git
+        url = git@github.com:yusufali98/YARR.git
 [submodule "libs/peract"]
 	path = rvt/libs/peract
         url = https://github.com/NVlabs/peract.git
