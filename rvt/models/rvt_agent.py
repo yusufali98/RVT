@@ -362,6 +362,12 @@ class RVTAgent:
                 lr=self._lr,
                 weight_decay=self._lambda_weight_l2,
             )
+        elif self._optimizer_type == "adamW":
+            self._optimizer = torch.optim.AdamW(
+                self._network.parameters(),
+                lr=self._lr,
+                weight_decay=self._lambda_weight_l2,
+            )
         else:
             raise Exception("Unknown optimizer")
 

@@ -77,7 +77,7 @@ def train(agent, data_iter, training_iterations, rank=0):
         t_start = time.time()
         agent.update(**update_args)
         t_end = time.time()
-        print("total epoch time. Time Cost: {} minutes".format((t_end - t_start) / 60.0))
+        # print("total epoch time. Time Cost: {} minutes".format((t_end - t_start) / 60.0))
 
     if rank == 0:
         log = print_loss_log(agent)
@@ -209,6 +209,7 @@ def experiment(rank, cmd_args, devices, port):
         sample_mode=exp_cfg.sample_mode,
     )
     train_dataset, _ = get_dataset_func()
+    print("Directly creating dataloader iterable outside the train function !")
     train_dataset_iter = iter(train_dataset)
     t_end = time.time()
     print("Created Dataset. Time Cost: {} minutes".format((t_end - t_start) / 60.0))
