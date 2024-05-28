@@ -52,6 +52,7 @@ class MVT_Mamba(nn.Module):
         mamba_d_model,
         mamba_bidirectional,
         mamba_d_state,
+        mamba_use_pos_enc,
         renderer_device="cuda:0",
         renderer=None,
     ):
@@ -106,6 +107,7 @@ class MVT_Mamba(nn.Module):
         self.add_pixel_loc = add_pixel_loc
         self.add_depth = add_depth
         self.pe_fix = pe_fix
+        self.mamba_use_pos_enc = mamba_use_pos_enc
 
         print("******************* Using MVT Mamba Variant ! *******************")
 
@@ -132,17 +134,21 @@ class MVT_Mamba(nn.Module):
         self.lang_emb_dim = lang_emb_dim
         self.lang_max_seq_len = lang_max_seq_len
 
-        if self.pe_fix:
-            num_pe_token = spatial_size**2 * self.num_img
-        else:
-            num_pe_token = lang_max_seq_len + (spatial_size**2 * self.num_img)
-        self.pos_encoding = nn.Parameter(
-            torch.randn(
-                1,
-                num_pe_token,
-                self.input_dim_before_seq,
+        if self.mamba_use_pos_enc:
+            if self.pe_fix:
+                num_pe_token = spatial_size**2 * self.num_img
+            else:
+                num_pe_token = lang_max_seq_len + (spatial_size**2 * self.num_img)
+            self.pos_encoding = nn.Parameter(
+                torch.randn(
+                    1,
+                    num_pe_token,
+                    self.input_dim_before_seq,
+                )
             )
-        )
+        else:
+            self.pos_encoding = None
+            print("NOT USING pos_enc for mamba variant !")
 
         inp_img_feat_dim = self.img_feat_dim
         if self.add_corr:
@@ -359,8 +365,10 @@ class MVT_Mamba(nn.Module):
         ins = rearrange(ins, "b ... d -> b (...) d")  # [B, num_img * np * np, 128]
         # add learable pos encoding
         # only added to image tokens
-        if self.pe_fix:
+        if self.pe_fix and self.mamba_use_pos_enc:
             ins += self.pos_encoding
+        # else:
+        #     print("NO pos_enc added to image tokens !")
 
         # append language features as sequence
         num_lang_tok = 0
@@ -373,8 +381,10 @@ class MVT_Mamba(nn.Module):
             ins = torch.cat((l, ins), dim=1)  # [B, num_img * np * np + 77, 128]
 
         # add learable pos encoding
-        if not self.pe_fix:
+        if not self.pe_fix and self.mamba_use_pos_enc:
             ins = ins + self.pos_encoding
+        # else:
+        #     print("NO pos_enc added to lanmguage and image tokens !")
 
         x = self.fc_bef_attn(ins)
         if self.self_cross_ver == 0:

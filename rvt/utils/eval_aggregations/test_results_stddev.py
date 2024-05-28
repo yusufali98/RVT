@@ -56,7 +56,7 @@ def main(root_dir, task_order, files_to_consider):
     print(latex_string)
 
 # Set the root directory of your test results
-root_dir = '/srv/kira-lab/share4/yali30/rvt_mamba/dev/RVT/rvt/high_precision_expts/mamba_330p_new_data/all_tasks_LR_5e-5/rvt_tasks_all_NW_6_PA.lr_5e-5_E_15_RES_use_mamba_T_depth_16_IS_330/eval/test_alternate'
+root_dir = '/srv/kira-lab/share4/yali30/rvt_mamba/dev/RVT/rvt/high_precision_expts/mamba_440p/all_tasks_LR_5e-5/rvt_tasks_all_NW_6_PA.lr_5e-5_E_15_RES_use_mamba_T_depth_16_IS_440/eval/test'
 
 task_order = [
     "close_jar", "reach_and_drag", "insert_onto_square_peg", "meat_off_grill",
