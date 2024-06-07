@@ -20,6 +20,8 @@ from rvt.mvt.attn import (
     FeedForward,
 )
 
+import sys
+
 
 class MVT_Mamba(nn.Module):
     def __init__(
@@ -53,6 +55,8 @@ class MVT_Mamba(nn.Module):
         mamba_bidirectional,
         mamba_d_state,
         mamba_use_pos_enc,
+        mamba_bi_weight_tie,
+        mamba_bi_only_within_img_toks,
         renderer_device="cuda:0",
         renderer=None,
     ):
@@ -107,7 +111,15 @@ class MVT_Mamba(nn.Module):
         self.add_pixel_loc = add_pixel_loc
         self.add_depth = add_depth
         self.pe_fix = pe_fix
+
+        # mamba variant parameters
+        self.use_mamba = use_mamba
+        self.mamba_d_model = mamba_d_model
+        self.mamba_d_state = mamba_d_state
         self.mamba_use_pos_enc = mamba_use_pos_enc
+        self.mamba_bidirectional = mamba_bidirectional
+        self.mamba_bi_weight_tie = mamba_bi_weight_tie
+        self.mamba_bi_only_within_img_toks = mamba_bi_only_within_img_toks
 
         print("******************* Using MVT Mamba Variant ! *******************")
 
@@ -239,15 +251,29 @@ class MVT_Mamba(nn.Module):
         attn_depth = depth
         
         layer_idx = 0
+        use_bidirectional = None
         for _ in range(attn_depth):
             # self.layers.append(
             #     nn.ModuleList([get_attn_attn(**cache_args), get_attn_ff(**cache_args)])
             # )
+
+            if self.mamba_bi_only_within_img_toks:
+                if layer_idx >= (attn_depth // 2):
+                    use_bidirectional = False
+                else:
+                    use_bidirectional = True
+            else:
+                use_bidirectional = self.mamba_bidirectional
+            
+            print("Using bidirectional block for layer ", layer_idx, "  ---- ", use_bidirectional)
+            sys.stdout.flush()
+
             self.layers.append(
                 create_block(
                     d_model=mamba_d_model,
                     ssm_cfg={"d_state": mamba_d_state},
-                    bidirectional=mamba_bidirectional
+                    bidirectional=use_bidirectional,
+                    bidirectional_weight_tie=mamba_bi_weight_tie
                 )
             )
             layer_idx += 1
@@ -611,10 +637,16 @@ class BiMambaWrapper(nn.Module):
                 **mamba_kwargs
             )
             if bidirectional_weight_tie:  # Tie in and out projections (where most of param count lies)
+                print("Weight tying in and out projections....")
+                sys.stdout.flush()
+
                 self.mamba_rev.in_proj.weight = self.mamba_fwd.in_proj.weight
                 self.mamba_rev.in_proj.bias = self.mamba_fwd.in_proj.bias
                 self.mamba_rev.out_proj.weight = self.mamba_fwd.out_proj.weight
                 self.mamba_rev.out_proj.bias = self.mamba_fwd.out_proj.bias
+            else:
+                print("NOT Weight tying in and out projections !")
+                sys.stdout.flush()
         else:
             print("Using Unidirectional Mamba....")
             self.mamba_rev = None

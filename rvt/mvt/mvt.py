@@ -47,6 +47,8 @@ class MVT(nn.Module):
         mamba_bidirectional,
         mamba_d_state,
         mamba_use_pos_enc,
+        mamba_bi_weight_tie,
+        mamba_bi_only_within_img_toks,
         renderer_device="cuda:0",
     ):
         """MultiView Transfomer"""
@@ -88,6 +90,8 @@ class MVT(nn.Module):
             del args["mamba_bidirectional"]
             del args["mamba_d_state"]
             del args["mamba_use_pos_enc"]
+            del args["mamba_bi_weight_tie"]
+            del args["mamba_bi_only_within_img_toks"]
 
             print("Using MVT TrF....")
             self.mvt1 = MVTSingle(**args, renderer=self.renderer)

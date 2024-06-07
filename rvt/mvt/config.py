@@ -35,7 +35,9 @@ _C.use_mamba=False
 _C.mamba_d_model=512
 _C.mamba_bidirectional=False
 _C.mamba_d_state=16
-_C.mamba_use_pos_enc=True
+_C.mamba_use_pos_enc=False
+_C.mamba_bi_weight_tie=True
+_C.mamba_bi_only_within_img_toks=False
 
 def get_cfg_defaults():
     """Get a yacs CfgNode object with default values for my_project."""
