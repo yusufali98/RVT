@@ -1,6 +1,8 @@
 import os
 import pandas as pd
 import numpy as np
+import argparse
+
 
 def find_csv_files(root_dir):
     """ Recursively find all CSV files in the given directory. """
@@ -55,15 +57,24 @@ def main(root_dir, task_order, files_to_consider):
     print("LaTeX code for average success rate and standard deviation per task:")
     print(latex_string)
 
-# Set the root directory of your test results
-root_dir = '/srv/kira-lab/share4/yali30/rvt_mamba/dev/RVT/rvt/high_precision_expts/mamba_440p/all_tasks_LR_5e-5/rvt_tasks_all_NW_6_PA.lr_5e-5_E_15_RES_use_mamba_T_depth_16_IS_440/eval/test'
 
-task_order = [
-    "close_jar", "reach_and_drag", "insert_onto_square_peg", "meat_off_grill",
-    "open_drawer", "place_cups", "place_wine_at_rack_location", "push_buttons",
-    "put_groceries_in_cupboard", "put_item_in_drawer", "put_money_in_safe", "light_bulb_in",
-    "slide_block_to_color_target", "place_shape_in_shape_sorter", "stack_blocks", "stack_cups",
-    "sweep_to_dustpan_of_size", "turn_tap"
-]
+if __name__ == "__main__":
+    # Set the root directory of your test results
+    # root_dir = '/srv/kira-lab/share4/yali30/rvt_mamba/dev/RVT/rvt/220p_ablations/mamba_220p/bissm_no_wt_tie_all_tasks_LR_5e-5_no_pos/rvt_tasks_all_bs_3_sAle_mode_random_PA.lr_5e-5_E_15_RES_use_mamba_T_depth_16_IS_220_mamba_use_pos_enc_F_mamba_bidirectional_T_mamba_bi_weight_tie_F/eval/test'
 
-main(root_dir, task_order, 5)
+    task_order = [
+        "close_jar", "reach_and_drag", "insert_onto_square_peg", "meat_off_grill",
+        "open_drawer", "place_cups", "place_wine_at_rack_location", "push_buttons",
+        "put_groceries_in_cupboard", "put_item_in_drawer", "put_money_in_safe", "light_bulb_in",
+        "slide_block_to_color_target", "place_shape_in_shape_sorter", "stack_blocks", "stack_cups",
+        "sweep_to_dustpan_of_size", "turn_tap"
+    ]
+
+    # Parse command-line arguments
+    parser = argparse.ArgumentParser(description='Process CSV files to calculate averages and standard deviations.')
+    parser.add_argument('--root_dir', type=str, help='The root directory of your test results.')
+    parser.add_argument('--files_to_consider', type=int, default=5, help='Number of files to consider for processing.')
+    args = parser.parse_args()
+
+    main(args.root_dir, task_order, args.files_to_consider)
+

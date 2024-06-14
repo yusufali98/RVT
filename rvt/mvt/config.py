@@ -31,6 +31,7 @@ _C.add_pixel_loc = True
 _C.add_depth = True
 _C.pe_fix = True
 
+# standard Mamba block experiments
 _C.use_mamba=False
 _C.mamba_d_model=512
 _C.mamba_bidirectional=False
@@ -38,6 +39,21 @@ _C.mamba_d_state=16
 _C.mamba_use_pos_enc=False
 _C.mamba_bi_weight_tie=True
 _C.mamba_bi_only_within_img_toks=False
+
+# VMamba experiment configs
+_C.use_vmamba=False
+_C.vmamba_drop_rate=0.2
+_C.vmamba_d_model=512
+_C.vmamba_depth=8
+_C.vmamba_d_state=1
+_C.vmamba_ssm_ratio=1.0
+_C.vmamba_ssm_conv=3
+_C.vmamba_ssm_conv_bias=False
+_C.vmamba_forward_type="v05_noz"
+_C.vmamba_mlp_ratio=4.0
+_C.vmamba_downsample="v3"
+_C.vmamba_patchembed="v2"
+_C.vmamba_norm_layer="ln2d"
 
 def get_cfg_defaults():
     """Get a yacs CfgNode object with default values for my_project."""

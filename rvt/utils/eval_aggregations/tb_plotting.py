@@ -66,8 +66,8 @@ def plot_training_losses(directories, train_tag, val_tag):
     plt.title('Training Loss Curves')
     plt.xlabel('Epochs')
     plt.ylabel('Loss')
-    plt.xlim(0, 14)  # Set x-axis to show from 0 to 5
-    plt.ylim(4.5,7)  # Set y-axis to show from 0 to 25
+    plt.xlim(2, 14)  # Set x-axis to show from 0 to 5
+    plt.ylim(4.4,6)  # Set y-axis to show from 0 to 25
     plt.legend()
     plt.grid(True)
     plt.savefig('combined_training_loss_curves_220p.png', format='png', bbox_inches='tight', pad_inches=0.5)
@@ -104,7 +104,7 @@ experiment_directories = [
     '/srv/kira-lab/share4/yali30/rvt_mamba/dev/RVT/rvt/high_precision_expts/rvt_330p/all_tasks',
 
     '/srv/kira-lab/share4/yali30/rvt_mamba/dev/RVT/rvt/high_precision_expts/mamba_220p/all_tasks_5e5_LR_orig',
-    '/srv/kira-lab/share4/yali30/rvt_mamba/dev/RVT/rvt/high_precision_expts/mamba_220p_state_32',
+    # '/srv/kira-lab/share4/yali30/rvt_mamba/dev/RVT/rvt/high_precision_expts/mamba_220p_state_32',
 
     # '/srv/kira-lab/share4/yali30/rvt_mamba/dev/RVT/rvt/220p_ablations/mamba_220p/all_tasks_adam_LR_1e-6',
     # '/srv/kira-lab/share4/yali30/rvt_mamba/dev/RVT/rvt/220p_ablations/mamba_220p/all_tasks_adam_LR_5e-6',
@@ -115,9 +115,17 @@ experiment_directories = [
     # '/srv/kira-lab/share4/yali30/rvt_mamba/dev/RVT/rvt/220p_ablations/mamba_220p/all_tasks_adamW_LR_5e-6',
     # '/srv/kira-lab/share4/yali30/rvt_mamba/dev/RVT/rvt/220p_ablations/mamba_220p/all_tasks_adamW_LR_7e-6',
     # '/srv/kira-lab/share4/yali30/rvt_mamba/dev/RVT/rvt/220p_ablations/mamba_220p/all_tasks_LR_2.5e-5',
+    '/srv/kira-lab/share4/yali30/rvt_mamba/dev/RVT/rvt/220p_ablations/mamba_220p/all_tasks_LR_5e-5_no_pos',
+    '/srv/kira-lab/share4/yali30/rvt_mamba/dev/RVT/rvt/220p_ablations/mamba_220p/bissm_all_tasks_LR_5e-5_no_pos',
+    # '/srv/kira-lab/share4/yali30/rvt_mamba/dev/RVT/rvt/220p_ablations/mamba_220p/bissm_dstate_32_all_tasks_LR_5e-5_no_pos',
+    '/srv/kira-lab/share4/yali30/rvt_mamba/dev/RVT/rvt/220p_ablations/mamba_220p/dstate_32_all_tasks_LR_5e-5_no_pos',
+    # '/srv/kira-lab/share4/yali30/rvt_mamba/dev/RVT/rvt/220p_ablations/mamba_220p/dstate_64_all_tasks_LR_5e-5_no_pos',
+    # '/srv/kira-lab/share4/yali30/rvt_mamba/dev/RVT/rvt/220p_ablations/mamba_220p/dstate_128_all_tasks_LR_5e-5_no_pos',
+    # '/srv/kira-lab/share4/yali30/rvt_mamba/dev/RVT/rvt/220p_ablations/mamba_220p/patch_5_all_tasks_LR_5e-5_no_pos',
 
-    '/srv/kira-lab/share4/yali30/rvt_mamba/dev/RVT/rvt/220p_ablations/mamba_220p_20L/all_tasks_lr_5e-5',
-    '/srv/kira-lab/share4/yali30/rvt_mamba/dev/RVT/rvt/220p_ablations/mamba_220p_20L/bissm_all_tasks_LR_5e-5',
+    # '/srv/kira-lab/share4/yali30/rvt_mamba/dev/RVT/rvt/220p_ablations/mamba_220p_20L/all_tasks_lr_5e-5',
+    # '/srv/kira-lab/share4/yali30/rvt_mamba/dev/RVT/rvt/220p_ablations/mamba_220p_20L/bissm_all_tasks_LR_5e-5',
+    # '/srv/kira-lab/share4/yali30/rvt_mamba/dev/RVT/rvt/220p_ablations/mamba_220p_20L/all_tasks_LR_5e-5_no_pos',
 
     # '/srv/kira-lab/share4/yali30/rvt_mamba/dev/RVT/rvt/high_precision_expts/mamba_220p_24L/all_tasks_LR_5e-5',
     # '/srv/kira-lab/share4/yali30/rvt_mamba/dev/RVT/rvt/220p_ablations/mamba_220p_24L/all_tasks_LR_3.5e-5',
@@ -126,15 +134,9 @@ experiment_directories = [
     # '/srv/kira-lab/share4/yali30/rvt_mamba/dev/RVT/rvt/high_precision_expts/mamba_220p_24L/all_tasks_LR_1e-5_2080_ti',
     # '/srv/kira-lab/share4/yali30/rvt_mamba/dev/RVT/rvt/high_precision_expts/mamba_220p_24L/all_tasks_LR_2.5e-6',
     # '/srv/kira-lab/share4/yali30/rvt_mamba/dev/RVT/rvt/high_precision_expts/mamba_220p_24L/all_tasks_LR_7.5e-6',
+    # '/srv/kira-lab/share4/yali30/rvt_mamba/dev/RVT/rvt/220p_ablations/mamba_220p_24L/all_tasks_LR_2.5e-5_no_pos',
 
     # '/srv/kira-lab/share4/yali30/rvt_mamba/dev/RVT/rvt/high_precision_expts/mamba_220p_24L_biSSM/all_tasks_LR_1e-5',
-    # '/srv/kira-lab/share4/yali30/rvt_mamba/dev/RVT/rvt/high_precision_expts/mamba_220p/close_jar_5e5_fast_fp32',
-    # '/srv/kira-lab/share4/yali30/rvt_mamba/dev/RVT/rvt/high_precision_expts/mamba_220p/close_jar_5e5_fast_fp16',
-    # '/srv/kira-lab/share4/yali30/rvt_mamba/dev/RVT/rvt/high_precision_expts/mamba_220p/close_jar_5e5_orig',
-    # '/srv/kira-lab/share4/yali30/rvt_mamba/dev/RVT/rvt/high_precision_expts/mamba_220p/close_jar_5e5_slow',
-    # '/srv/kira-lab/share4/yali30/rvt_mamba/dev/RVT/rvt/high_precision_expts/mamba_220p/insert_onto_square_peg',
-    # '/srv/kira-lab/share4/yali30/rvt_mamba/dev/RVT/rvt/high_precision_expts/mamba_220p/place_cups',
-    # '/srv/kira-lab/share4/yali30/rvt_mamba/dev/RVT/rvt/high_precision_expts/mamba_220p/place_shape_in_shape_sorter',
     # '/srv/kira-lab/share4/yali30/rvt_mamba/dev/RVT/rvt/high_precision_expts/mamba_220p_biSSM/all_tasks_LR_5e-5',
     # '/srv/kira-lab/share4/yali30/rvt_mamba/dev/RVT/rvt/high_precision_expts/mamba_220p_biSSM_state_32/all_tasks_LR_5e-5',
     # '/srv/kira-lab/share4/yali30/rvt_mamba/dev/RVT/rvt/high_precision_expts/mamba_220p_biSSM_state_64/all_tasks_LR_5e-5',
@@ -143,9 +145,18 @@ experiment_directories = [
     # '/srv/kira-lab/share4/yali30/rvt_mamba/dev/RVT/rvt/high_precision_expts/mamba_220p_state_32/all_tasks_LR_5e-5',
     # '/srv/kira-lab/share4/yali30/rvt_mamba/dev/RVT/rvt/high_precision_expts/mamba_220p_state_128/all_tasks_LR_5e-5',
     # '/srv/kira-lab/share4/yali30/rvt_mamba/dev/RVT/rvt/high_precision_expts/mamba_220p_state_256/all_tasks_LR_5e-5',
+
     '/srv/kira-lab/share4/yali30/rvt_mamba/dev/RVT/rvt/high_precision_expts/mamba_330p/all_tasks_LR_5e-5',
     # '/srv/kira-lab/share4/yali30/rvt_mamba/dev/RVT/rvt/high_precision_expts/mamba_330p_biSSM/all_tasks_LR_5e-5',
     # '/srv/kira-lab/share4/yali30/rvt_mamba/dev/RVT/rvt/high_precision_expts/mamba_330p_patch_5/all_tasks_5e-5',
+    '/srv/kira-lab/share4/yali30/rvt_mamba/dev/RVT/rvt/220p_ablations/mamba_330p/all_tasks_LR_5e-5_no_pos',
+    '/srv/kira-lab/share4/yali30/rvt_mamba/dev/RVT/rvt/220p_ablations/mamba_330p/bissm_all_tasks_LR_5e-5_no_pos',
+    # '/srv/kira-lab/share4/yali30/rvt_mamba/dev/RVT/rvt/220p_ablations/mamba_330p/dstate_32_all_tasks_LR_5e-5_no_pos',
+
+    '/srv/kira-lab/share4/yali30/rvt_mamba/dev/RVT/rvt/220p_ablations/mamba_440p/all_tasks_LR_5e-5_no_pos',
+
+    '/srv/kira-lab/share4/yali30/rvt_mamba/dev/RVT/rvt/220p_ablations/mamba_550p/all_tasks_LR_5e-5_no_pos',
+    
     # '/srv/kira-lab/share4/yali30/rvt_mamba/dev/RVT/rvt/high_precision_expts/mamba_550p/all_tasks_LR_5e-5',
     # '/srv/kira-lab/share4/yali30/rvt_mamba/dev/RVT/rvt/high_precision_expts/mamba_330p_state_32/all_tasks_LR_5e-5',
     # '/srv/kira-lab/share4/yali30/rvt_mamba/dev/RVT/rvt/high_precision_expts/mamba_330p_state_64/all_tasks_LR_5e-5',
@@ -153,5 +164,16 @@ experiment_directories = [
     # Add more directories as needed
 ]
 loss_tag = 'train_total_loss'  # Adjust this to match the actual tag used in your TensorBoard logs
+
+
 val_success_rate_tag = 'Success_Rate'  # Adjust this to match the actual tag used in your TensorBoard logs
 plot_training_losses(experiment_directories, loss_tag, val_success_rate_tag)
+
+
+# '/srv/kira-lab/share4/yali30/rvt_mamba/dev/RVT/rvt/high_precision_expts/mamba_220p/close_jar_5e5_fast_fp32',
+# '/srv/kira-lab/share4/yali30/rvt_mamba/dev/RVT/rvt/high_precision_expts/mamba_220p/close_jar_5e5_fast_fp16',
+# '/srv/kira-lab/share4/yali30/rvt_mamba/dev/RVT/rvt/high_precision_expts/mamba_220p/close_jar_5e5_orig',
+# '/srv/kira-lab/share4/yali30/rvt_mamba/dev/RVT/rvt/high_precision_expts/mamba_220p/close_jar_5e5_slow',
+# '/srv/kira-lab/share4/yali30/rvt_mamba/dev/RVT/rvt/high_precision_expts/mamba_220p/insert_onto_square_peg',
+# '/srv/kira-lab/share4/yali30/rvt_mamba/dev/RVT/rvt/high_precision_expts/mamba_220p/place_cups',
+# '/srv/kira-lab/share4/yali30/rvt_mamba/dev/RVT/rvt/high_precision_expts/mamba_220p/place_shape_in_shape_sorter',

@@ -14,6 +14,8 @@ from rvt.mvt.config import get_cfg_defaults
 from rvt.mvt.renderer import BoxRenderer
 
 from rvt.mvt.mvt_mamba import MVT_Mamba as MVTSingleMamba
+from rvt.mvt.mvt_vmamba import MVT_VMamba as MVTSingleVMamba
+
 
 class MVT(nn.Module):
     def __init__(
@@ -50,6 +52,7 @@ class MVT(nn.Module):
         mamba_bi_weight_tie,
         mamba_bi_only_within_img_toks,
         renderer_device="cuda:0",
+        **kwargs,
     ):
         """MultiView Transfomer"""
         super().__init__()
@@ -58,6 +61,10 @@ class MVT(nn.Module):
         args = copy.deepcopy(locals())
         del args["self"]
         del args["__class__"]
+
+        # Merge kwargs into args
+        args.update(kwargs)
+        del args["kwargs"]
 
         # for verifying the input
         self.img_feat_dim = img_feat_dim
@@ -83,6 +90,10 @@ class MVT(nn.Module):
         if use_mamba:
             print("Using MVT Mamba....")
             self.mvt1 = MVTSingleMamba(**args, renderer=self.renderer)
+        
+        elif args["use_vmamba"]:
+            print("Using MVT V-Mamba....")
+            self.mvt1 = MVTSingleVMamba(**args, renderer=self.renderer)
 
         else:
             del args["mamba_d_model"]
