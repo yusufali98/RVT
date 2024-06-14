@@ -188,6 +188,7 @@ class MVT_VMamba(nn.Module):
                     self.input_dim_before_seq,
                 )
             )
+            print("USING pos_enc for mamba variant !")
         else:
             self.pos_encoding = None
             print("NOT USING pos_enc for mamba variant !")
