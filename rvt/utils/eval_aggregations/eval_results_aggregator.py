@@ -63,7 +63,7 @@ def get_average_success_rate(top_level_dir):
     return average_rates
 
 # Provide the path to the top-level experiment directory
-top_level_directory = '/srv/kira-lab/share4/yali30/rvt_mamba/dev/RVT/rvt/220p_ablations/mamba_330p/bissm_img_toks_no_wt_tie_all_tasks_LR_5e-5_no_pos/'
+top_level_directory = '/srv/kira-lab/share4/yali30/rvt_mamba/dev/RVT/rvt/VMamba_expts/mamba_330p/with_z_all_tasks_LR_5e-5_no_pos/'
 average_rates = get_average_success_rate(top_level_directory)
 
 

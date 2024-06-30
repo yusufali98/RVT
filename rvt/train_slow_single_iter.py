@@ -231,7 +231,7 @@ def experiment(rank, cmd_args, devices, port):
             **mvt_cfg,
         ).to(device)
         if ddp:
-            rvt = DDP(rvt, device_ids=[device])
+            rvt = DDP(rvt, device_ids=[device], find_unused_parameters=True)
 
         agent = rvt_agent.RVTAgent(
             network=rvt,

@@ -72,6 +72,7 @@ class MVT_VMamba(nn.Module):
         vmamba_downsample,
         vmamba_patchembed,
         vmamba_norm_layer,
+        vmamba_use_custom_ss2d,
         renderer_device="cuda:0",
         renderer=None,
     ):
@@ -137,7 +138,7 @@ class MVT_VMamba(nn.Module):
         self.mamba_bi_only_within_img_toks = mamba_bi_only_within_img_toks
         
         # VMamba variant parameters
-        self.use_vmamba = False
+        self.use_vmamba = use_vmamba
         self.vmamba_drop_rate = vmamba_drop_rate
         self.vmamba_d_model = vmamba_d_model
         self.vmamba_depth = vmamba_depth
@@ -150,6 +151,7 @@ class MVT_VMamba(nn.Module):
         self.vmamba_downsample = vmamba_downsample
         self.vmamba_patchembed = vmamba_patchembed
         self.vmamba_norm_layer = vmamba_norm_layer
+        self.vmamba_use_custom_ss2d = vmamba_use_custom_ss2d
 
         print("******************* Using MVT V-Mamba Variant ! *******************")
 
@@ -310,7 +312,8 @@ class MVT_VMamba(nn.Module):
                                           vmamba_mlp_ratio=self.vmamba_mlp_ratio,
                                           downsample_version=self.vmamba_downsample,
                                           patchembed_version=self.vmamba_patchembed,
-                                          norm_layer=self.vmamba_norm_layer)
+                                          norm_layer=self.vmamba_norm_layer,
+                                          vmamba_use_custom_ss2d=self.vmamba_use_custom_ss2d)
 
         self.up0 = Conv2DUpsampleBlock(
             self.input_dim_before_seq,

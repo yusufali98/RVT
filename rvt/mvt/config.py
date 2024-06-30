@@ -40,7 +40,7 @@ _C.mamba_use_pos_enc=False
 _C.mamba_bi_weight_tie=True
 _C.mamba_bi_only_within_img_toks=False
 
-# VMamba experiment configs
+# VMamba experiment configs; default configs based on vmambav2v_tiny_224.yaml -> https://github.com/MzeroMiko/VMamba/blob/main/classification/configs/vssm/vmambav2v_tiny_224.yaml
 _C.use_vmamba=False
 _C.vmamba_drop_rate=0.2
 _C.vmamba_d_model=512
@@ -54,6 +54,7 @@ _C.vmamba_mlp_ratio=4.0
 _C.vmamba_downsample="v3"
 _C.vmamba_patchembed="v2"
 _C.vmamba_norm_layer="ln2d"
+_C.vmamba_use_custom_ss2d=False
 
 def get_cfg_defaults():
     """Get a yacs CfgNode object with default values for my_project."""
