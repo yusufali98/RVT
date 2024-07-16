@@ -309,7 +309,7 @@ class MVT_VMamba(nn.Module):
                                           ssm_conv=self.vmamba_ssm_conv,
                                           ssm_conv_bias=self.vmamba_ssm_conv_bias,
                                           forward_type=self.vmamba_forward_type,
-                                          vmamba_mlp_ratio=self.vmamba_mlp_ratio,
+                                          mlp_ratio=self.vmamba_mlp_ratio,
                                           downsample_version=self.vmamba_downsample,
                                           patchembed_version=self.vmamba_patchembed,
                                           norm_layer=self.vmamba_norm_layer,
