@@ -50,8 +50,11 @@ from rvt.utils.rvt_utils import (
     TensorboardManager,
     get_eval_parser,
     RLBENCH_TASKS,
+    NOVEL_RLBENCH_TASKS,
 )
 from rvt.utils.rvt_utils import load_agent as load_agent_state
+
+import sys
 
 
 def load_agent(
@@ -155,6 +158,9 @@ def load_agent(
                 **mvt_cfg,
             )
 
+            print("image size: ", IMAGE_SIZE)
+            sys.stdout.flush()
+
             agent = rvt_agent.RVTAgent(
                 network=rvt.to(device),
                 image_resolution=[IMAGE_SIZE, IMAGE_SIZE],
@@ -187,7 +193,9 @@ def load_agent(
         agent.eval()
 
     print("Agent Information")
+    sys.stdout.flush()
     print(agent)
+    sys.stdout.flush()
     return agent
 
 
@@ -212,6 +220,9 @@ def eval(
         agent.load_clip()
 
     camera_resolution = [IMAGE_SIZE, IMAGE_SIZE]
+    print("camera resolution: ", camera_resolution)
+    sys.stdout.flush()
+
     obs_config = utils.create_obs_config(CAMERAS, camera_resolution, method_name="")
 
     gripper_mode = Discrete()
@@ -227,6 +238,10 @@ def eval(
     task_classes = []
     if tasks[0] == "all":
         tasks = RLBENCH_TASKS
+        if verbose:
+            print(f"evaluate on {len(tasks)} tasks: ", tasks)
+    elif tasks[0] == "novel":
+        tasks = NOVEL_RLBENCH_TASKS
         if verbose:
             print(f"evaluate on {len(tasks)} tasks: ", tasks)
 
@@ -274,6 +289,9 @@ def eval(
     num_tasks = len(tasks)
     step_signal = Value("i", -1)
 
+    print("Beginning evaluation....")
+    sys.stdout.flush()
+
     scores = []
     for task_id in range(num_tasks):
         task_rewards = []
@@ -308,10 +326,10 @@ def eval(
             reward = episode_rollout[-1].reward
             task_rewards.append(reward)
             lang_goal = eval_env._lang_goal
-            if verbose:
-                print(
-                    f"Evaluating {task_name} | Episode {ep} | Score: {reward} | Episode Length: {len(episode_rollout)} | Lang Goal: {lang_goal}"
-                )
+            print(
+                f"Evaluating {task_name} | Episode {ep} | Score: {reward} | Episode Length: {len(episode_rollout)} | Lang Goal: {lang_goal}"
+            )
+            sys.stdout.flush()
 
         # report summaries
         summaries = []
@@ -346,6 +364,7 @@ def eval(
             task_score = "unknown"
 
         print(f"[Evaluation] Finished {task_name} | Final Score: {task_score}\n")
+        sys.stdout.flush()
 
         scores.append(task_score)
 
@@ -432,6 +451,9 @@ def _eval(args):
         model_paths.append(os.path.join(args.model_folder, args.model_name))
     else:
         model_paths.append(None)
+    
+    print("dataset folder: ", args.eval_datafolder)
+    sys.stdout.flush()
 
     # skipping evaluated models
     if args.skip:
@@ -528,6 +550,7 @@ def _eval(args):
             task_scores[tasks_to_eval[i]] = scores[i]
 
         print("save ", task_scores)
+        sys.stdout.flush()
         tb.update("eval", model_idx, task_scores)
         tb.writer.flush()
 

@@ -249,6 +249,31 @@ RLBENCH_TASKS = [
     "stack_cups",
 ]
 
+NOVEL_RLBENCH_TASKS = [
+    "basketball_in_hoop",
+    "beat_the_buzz",
+    "block_pyramid",
+    "change_clock",
+    "close_laptop_lid",
+    "close_microwave",
+    "hit_ball_with_queue",
+    "lamp_on",
+    "open_box",
+    "open_door",
+    "open_wine_bottle",
+    "phone_on_base",
+    "place_hanger_on_rack",
+    "play_jenga",
+    "put_knife_on_chopping_board",
+    "put_rubbish_in_bin",
+    "remove_cups",
+    "scoop_with_spatula",
+    "slide_cabinet_open_and_place_cups",
+    "straighten_rope",
+    "take_lid_off_saucepan",
+    "take_money_out_safe",
+]
+
 
 def load_agent(agent_path, agent=None, only_epoch=False):
     if isinstance(agent, PreprocessAgent2):

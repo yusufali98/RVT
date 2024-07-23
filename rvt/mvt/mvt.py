@@ -133,6 +133,11 @@ class MVT(nn.Module):
         if self.stage_two:
             self.mvt2 = MVTSingle(**args, renderer=self.renderer)
 
+        total_params_1 = sum(p.numel() for p in self.mvt1.parameters() if p.requires_grad)
+        if self.stage_two:
+            total_params_2 = sum(p.numel() for p in self.mvt2.parameters() if p.requires_grad)
+        print("MVI1 params: ", total_params_1, "    MVT2 params: ", total_params_2, "   Total Params: ", total_params_1 + total_params_2)
+
     def get_pt_loc_on_img(self, pt, mvt1_or_mvt2, dyn_cam_info, out=None):
         """
         :param pt: point for which location on image is to be found. the point

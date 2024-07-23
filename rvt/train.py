@@ -34,6 +34,7 @@ from rvt.utils.rvt_utils import (
     get_num_feat,
     load_agent,
     RLBENCH_TASKS,
+    NOVEL_RLBENCH_TASKS,
 )
 from rvt.utils.peract_utils import (
     CAMERAS,
@@ -44,11 +45,11 @@ from rvt.utils.peract_utils import (
 
 
 # new train takes the dataset as input
-def train(agent, dataset, training_iterations, rank=0):
+def train(agent, data_iter, training_iterations, rank=0):
     agent.train()
     log = defaultdict(list)
 
-    data_iter = iter(dataset)
+    # data_iter = iter(dataset)
     iter_command = range(training_iterations)
 
     for iteration in tqdm.tqdm(
@@ -107,6 +108,8 @@ def get_tasks(exp_cfg):
     parsed_tasks = exp_cfg.tasks.split(",")
     if parsed_tasks[0] == "all":
         tasks = RLBENCH_TASKS
+    elif parsed_tasks[0] == "novel":
+        tasks = NOVEL_RLBENCH_TASKS
     else:
         tasks = parsed_tasks
     return tasks
@@ -172,10 +175,24 @@ def experiment(rank, cmd_args, devices, port):
     # to match peract, iterations per epoch
     TRAINING_ITERATIONS = int(exp_cfg.train_iter // (exp_cfg.bs * len(devices)))
     EPOCHS = exp_cfg.epochs
-    TRAIN_REPLAY_STORAGE_DIR = "replay/replay_train"
-    TEST_REPLAY_STORAGE_DIR = "replay/replay_val"
+
+    tasks_to_train = exp_cfg.tasks.split(",")
+    if tasks_to_train[0] == "all":
+        TRAIN_REPLAY_STORAGE_DIR = "replay/replay_train"
+        TEST_REPLAY_STORAGE_DIR = "replay/replay_val"
+        data_folder = DATA_FOLDER
+    elif tasks_to_train[0] == "novel":
+        TRAIN_REPLAY_STORAGE_DIR = "replay/replay_train_novel"
+        TEST_REPLAY_STORAGE_DIR = "replay/replay_val_novel"
+        data_folder = "/workspace/RVT/rvt/libs/RLBench/tools/data_novel"
+        NUM_TRAIN = 1       # Right now use only one demo to finetune on novel tasks
+    else:
+        raise RuntimeError("Unsupported tasks list supplied")
+    
     log_dir = get_logdir(cmd_args, exp_cfg)
     tasks = get_tasks(exp_cfg)
+
+    print("train replay storage: ", TRAIN_REPLAY_STORAGE_DIR)
     print("Training on {} tasks: {}".format(len(tasks), tasks))
 
     t_start = time.time()
@@ -185,7 +202,7 @@ def experiment(rank, cmd_args, devices, port):
         None,
         TRAIN_REPLAY_STORAGE_DIR,
         None,
-        DATA_FOLDER,
+        data_folder,
         NUM_TRAIN,
         None,
         cmd_args.refresh_replay,
@@ -195,6 +212,8 @@ def experiment(rank, cmd_args, devices, port):
         sample_distribution_mode=exp_cfg.sample_distribution_mode,
     )
     train_dataset, _ = get_dataset_func()
+    print("Directly creating dataloader iterable outside the train function !")
+    train_dataset_iter = iter(train_dataset)
     t_end = time.time()
     print("Created Dataset. Time Cost: {} minutes".format((t_end - t_start) / 60.0))
 
@@ -268,7 +287,7 @@ def experiment(rank, cmd_args, devices, port):
             break
 
         print(f"Rank [{rank}], Epoch [{i}]: Training on train dataset")
-        out = train(agent, train_dataset, TRAINING_ITERATIONS, rank)
+        out = train(agent, train_dataset_iter, TRAINING_ITERATIONS, rank)
 
         if rank == 0:
             tb.update("train", i, out)
@@ -308,4 +327,5 @@ if __name__ == "__main__":
     devices = [int(x) for x in devices]
 
     port = (random.randint(0, 3000) % 3000) + 27000
-    mp.spawn(experiment, args=(cmd_args, devices, port), nprocs=len(devices), join=True)
+    # mp.spawn(experiment, args=(cmd_args, devices, port), nprocs=len(devices), join=True)
+    experiment(0, cmd_args, devices, port)
