@@ -657,6 +657,9 @@ class RVTAgent:
                 img_aug=img_aug,
                 wpt_local=wpt_local if self._network.training else None,
                 rot_x_y=rot_x_y if self.rot_ver == 1 else None,
+                in_context_demo=replay_sample["in_context_demo"],
+                tasks=replay_sample["tasks"],
+                # in_context_demo_layout=replay_sample["in_context_demo_layout"],
             )
 
             q_trans, rot_q, grip_q, collision_q, y_q, pts = self.get_q(

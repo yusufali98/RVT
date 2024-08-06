@@ -35,6 +35,7 @@ from rvt.utils.rvt_utils import (
     load_agent,
     RLBENCH_TASKS,
     NOVEL_RLBENCH_TASKS,
+    pad_and_stack_with_mask,
 )
 from rvt.utils.peract_utils import (
     CAMERAS,
@@ -57,6 +58,8 @@ def train(agent, data_iter, training_iterations, rank=0):
     ):
 
         raw_batch = next(data_iter)
+        # raw_batch["in_context_demo"], raw_batch["in_context_demo_layout"] = pad_and_stack_with_mask(raw_batch["in_context_demo"])
+        
         batch = {
             k: v.to(agent._device)
             for k, v in raw_batch.items()
@@ -64,6 +67,9 @@ def train(agent, data_iter, training_iterations, rank=0):
         }
         batch["tasks"] = raw_batch["tasks"]
         batch["lang_goal"] = raw_batch["lang_goal"]
+        
+        batch["in_context_demo"] = raw_batch["in_context_demo"]
+        
         update_args = {
             "step": iteration,
         }

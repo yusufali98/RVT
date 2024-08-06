@@ -47,6 +47,8 @@ _C.st_wpt_loc_aug = 0.05
 _C.st_wpt_loc_inp_no_noise = False
 _C.img_aug_2 = 0.0
 
+_C.use_in_context_demo=False
+
 
 def get_cfg_defaults():
     """Get a yacs CfgNode object with default values for my_project."""

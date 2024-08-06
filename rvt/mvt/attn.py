@@ -124,9 +124,15 @@ class Attention(nn.Module):  # is all you need. Living up to its name.
             dropout_p = self.dropout_p if self.training else 0.0
             # using xf if available
             if self.avail_xf:
-                out = xops.memory_efficient_attention(
-                    query=q, key=k, value=v, p=dropout_p
-                )
+                if mask is None:
+                    out = xops.memory_efficient_attention(
+                        query=q, key=k, value=v, p=dropout_p
+                    )
+                else:
+                    out = xops.memory_efficient_attention(
+                        query=q, key=k, value=v, p=dropout_p, attn_bias=mask
+                    )
+
         else:
             sim = einsum("b i d, b j d -> b i j", q, k) * self.scale
             if exists(mask):

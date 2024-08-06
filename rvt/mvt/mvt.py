@@ -14,6 +14,8 @@ from rvt.mvt.mvt_single import MVT as MVTSingle
 from rvt.mvt.config import get_cfg_defaults
 from rvt.mvt.renderer import BoxRenderer
 
+from rvt.mvt.mvt_single_in_context import MVT_InContext
+
 
 class MVT(nn.Module):
     def __init__(
@@ -58,6 +60,7 @@ class MVT(nn.Module):
         st_wpt_loc_aug,
         st_wpt_loc_inp_no_noise,
         img_aug_2,
+        use_in_context_demo,
         renderer_device="cuda:0",
     ):
         """MultiView Transfomer
@@ -93,6 +96,7 @@ class MVT(nn.Module):
         del args["st_wpt_loc_aug"]
         del args["st_wpt_loc_inp_no_noise"]
         del args["img_aug_2"]
+        del args["use_in_context_demo"]
 
         self.rot_ver = rot_ver
         self.num_rot = num_rot
@@ -125,11 +129,20 @@ class MVT(nn.Module):
         self.proprio_dim = proprio_dim
         self.img_size = img_size
 
-        self.mvt1 = MVTSingle(
-            **args,
-            renderer=self.renderer,
-            no_feat=self.stage_two,
-        )
+        self.use_in_context_demo = use_in_context_demo
+
+        if not self.use_in_context_demo:
+            self.mvt1 = MVTSingle(
+                **args,
+                renderer=self.renderer,
+                no_feat=self.stage_two,
+            )
+        else:
+            self.mvt1 = MVT_InContext(
+                **args,
+                renderer=self.renderer,
+                no_feat=self.stage_two,
+            )
         if self.stage_two:
             self.mvt2 = MVTSingle(**args, renderer=self.renderer)
 

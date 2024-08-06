@@ -62,18 +62,30 @@ if __name__ == "__main__":
     # Set the root directory of your test results
     # root_dir = '/srv/kira-lab/share4/yali30/rvt_mamba/dev/RVT/rvt/220p_ablations/mamba_220p/bissm_no_wt_tie_all_tasks_LR_5e-5_no_pos/rvt_tasks_all_bs_3_sAle_mode_random_PA.lr_5e-5_E_15_RES_use_mamba_T_depth_16_IS_220_mamba_use_pos_enc_F_mamba_bidirectional_T_mamba_bi_weight_tie_F/eval/test'
 
-    task_order = [
-        "close_jar", "reach_and_drag", "insert_onto_square_peg", "meat_off_grill",
-        "open_drawer", "place_cups", "place_wine_at_rack_location", "push_buttons",
-        "put_groceries_in_cupboard", "put_item_in_drawer", "put_money_in_safe", "light_bulb_in",
-        "slide_block_to_color_target", "place_shape_in_shape_sorter", "stack_blocks", "stack_cups",
-        "sweep_to_dustpan_of_size", "turn_tap"
-    ]
-
     # Parse command-line arguments
     parser = argparse.ArgumentParser(description='Process CSV files to calculate averages and standard deviations.')
     parser.add_argument('--root_dir', type=str, help='The root directory of your test results.')
     parser.add_argument('--files_to_consider', type=int, default=5, help='Number of files to consider for processing.')
+    parser.add_argument('--tasks', type=str, help='Aggregate test results for base or novel tasks ?')
     args = parser.parse_args()
+
+    if args.tasks == 'base':
+        task_order = [
+            "close_jar", "reach_and_drag", "insert_onto_square_peg", "meat_off_grill",
+            "open_drawer", "place_cups", "place_wine_at_rack_location", "push_buttons",
+            "put_groceries_in_cupboard", "put_item_in_drawer", "put_money_in_safe", "light_bulb_in",
+            "slide_block_to_color_target", "place_shape_in_shape_sorter", "stack_blocks", "stack_cups",
+            "sweep_to_dustpan_of_size", "turn_tap"
+        ]
+    elif args.tasks == 'novel':
+        task_order = [
+            "basketball_in_hoop", "beat_the_buzz", "block_pyramid", "change_clock", "close_laptop_lid",
+            "close_microwave", "hit_ball_with_queue", "lamp_on", "open_box", "open_door", "open_wine_bottle",
+            "phone_on_base", "place_hanger_on_rack", "play_jenga", "put_knife_on_chopping_board",
+            "put_rubbish_in_bin", "remove_cups", "scoop_with_spatula", "slide_cabinet_open_and_place_cups",
+            "straighten_rope", "take_lid_off_saucepan", "take_money_out_safe"
+        ]
+    else:
+        raise AssertionError("Only base / novel tasks supported for testing !")
 
     main(args.root_dir, task_order, args.files_to_consider)

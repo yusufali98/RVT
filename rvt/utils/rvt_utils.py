@@ -326,3 +326,34 @@ def load_agent(agent_path, agent=None, only_epoch=False):
             )
 
     return epoch
+
+
+def pad_and_stack_with_mask(tensor_lists):
+    # Find the maximum number of tensors in any list
+    max_len = max(len(tensor_list) for tensor_list in tensor_lists)
+
+    # Check if tensors are of the same shape
+    tensor_shapes = [tensor_list[0].shape for tensor_list in tensor_lists]
+    assert all(shape == tensor_shapes[0] for shape in tensor_shapes), "Tensors must have the same shape in each list."
+
+    # Determine tensor shape
+    tensor_shape = tensor_shapes[0]
+
+    # Initialize lists to hold padded tensors and attention masks
+    padded_lists = []
+    attention_masks = []
+
+    for tensor_list in tensor_lists:
+        # Create a list of tensors, padding with zero tensors if needed
+        padded_list = tensor_list + [torch.zeros(tensor_shape) for _ in range(max_len - len(tensor_list))]
+        padded_lists.append(padded_list)
+
+        # Create attention mask (1s for data, 0s for padding)
+        mask = [1] * len(tensor_list) + [0] * (max_len - len(tensor_list))
+        attention_masks.append(mask)
+
+    # Stack the lists into a single tensor
+    batch = torch.stack([torch.stack(tensors) for tensors in padded_lists])
+    attention_mask = torch.tensor(attention_masks, dtype=torch.long)
+
+    return batch, attention_mask
